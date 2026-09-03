@@ -179,6 +179,16 @@ internal sealed class NotchForm : Form
         Settle();
     }
 
+    /// <summary>
+    /// Showing the window applies WinForms' own idea of its bounds, which would undo the layered surface pushed
+    /// while the handle was still hidden. The size and position only stick once this has run.
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Settle();
+    }
+
     protected override void WndProc(ref Message m)
     {
         switch (m.Msg)
