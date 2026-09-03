@@ -13,7 +13,23 @@ public class ClockSourceTests
     {
         var item = ClockSource.Item(Noon, CultureInfo.InvariantCulture);
 
-        Assert.Equal("12:34", item.Value);
+        Assert.Equal("12:34", Assert.Single(item.Values).Text);
+    }
+
+    /// <summary>
+    /// The clock sits at the right-hand end, so its date label changing width would push every other reading
+    /// along. The yardstick has to be at least as wide as any date the format can produce.
+    /// </summary>
+    [Fact]
+    public void SizesTheDateLabelForTheLongestNames()
+    {
+        var yardstick = ClockSource.Item(Noon, CultureInfo.InvariantCulture).LabelYardstick;
+
+        for (var day = 0; day < 366; day++)
+        {
+            var label = ClockSource.Item(Noon.AddDays(day), CultureInfo.InvariantCulture).Label;
+            Assert.True(label.Length <= yardstick.Length, $"'{label}' is longer than the yardstick '{yardstick}'");
+        }
     }
 
     [Fact]

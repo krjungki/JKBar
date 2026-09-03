@@ -79,32 +79,45 @@ internal static class BandRenderer
         using var muted = new SolidBrush(Color.FromArgb(170, style.TextColour));
 
         var gap = padding;
+        var inner = Math.Max(2, padding / 2);
+        var y = slot.Top + ((slot.Height - font.Height) / 2f);
         var right = slot.Right;
 
         // Right-aligned, so the list is walked backwards and callers can supply plain left-to-right order.
         for (var i = items.Count - 1; i >= 0; i--)
         {
             var item = items[i];
-            var value = item.Value;
-            var label = item.Label;
-            var valueWidth = Measure(g, value, font, format);
-            var labelWidth = string.IsNullOrEmpty(label) ? 0 : Measure(g, label, font, format) + (gap / 2);
+            var labelWidth = item.Label.Length == 0 ? 0 : Measure(g, item.LabelYardstick, font, format);
+            var width = labelWidth;
 
-            var start = right - valueWidth - labelWidth;
+            foreach (var value in item.Values)
+            {
+                width += inner + Measure(g, value.Template, font, format);
+            }
+
+            var start = right - width;
             if (start < slot.Left)
             {
                 return;
             }
 
-            var y = slot.Top + ((slot.Height - font.Height) / 2f);
-
             if (labelWidth > 0)
             {
-                Write(g, label, font, format, muted, shadow, start, y);
+                Write(g, item.Label, font, format, muted, shadow, start, y);
             }
 
             using var accent = item.Accent is { } colour ? new SolidBrush(colour) : null;
-            Write(g, value, font, format, accent ?? text, shadow, start + labelWidth, y);
+            var x = start + labelWidth;
+
+            foreach (var value in item.Values)
+            {
+                // The box is the template's width and the text sits at its right edge, so digits grow leftwards
+                // into reserved space instead of pushing the next reading along.
+                var box = Measure(g, value.Template, font, format);
+                x += inner;
+                Write(g, value.Text, font, format, accent ?? text, shadow, x + box - Measure(g, value.Text, font, format), y);
+                x += box;
+            }
 
             right = start - gap;
         }

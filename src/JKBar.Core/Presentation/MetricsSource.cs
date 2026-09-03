@@ -15,16 +15,25 @@ public static class MetricsSource
     /// <summary>In display order, left to right.</summary>
     public static IReadOnlyList<BandItem> Items(MetricsSnapshot snapshot) =>
     [
-        new BandItem("CPU", ByteRate.Percent(snapshot.CpuPercent), Cpu),
-        new BandItem("RAM", ByteRate.Percent(snapshot.MemoryPercent), Memory),
-        new BandItem("DISK", Pair(snapshot.DiskReadBytesPerSecond, snapshot.DiskWriteBytesPerSecond), Disk),
-        new BandItem("NET", Pair(snapshot.NetworkInBytesPerSecond, snapshot.NetworkOutBytesPerSecond), Network)
+        new BandItem("CPU", ByteRate.Percent(snapshot.CpuPercent), ByteRate.WidestPercent, Cpu),
+        new BandItem("RAM", ByteRate.Percent(snapshot.MemoryPercent), ByteRate.WidestPercent, Memory),
+        new BandItem(
+            "DISK",
+            [Rate(Down, snapshot.DiskReadBytesPerSecond), Rate(Up, snapshot.DiskWriteBytesPerSecond)],
+            Disk),
+        new BandItem(
+            "NET",
+            [Rate(Down, snapshot.NetworkInBytesPerSecond), Rate(Up, snapshot.NetworkOutBytesPerSecond)],
+            Network)
     ];
 
     /// <summary>What the readouts would say, so an unchanged band is not repainted at full screen width.</summary>
     public static string Signature(MetricsSnapshot snapshot) =>
-        string.Join('|', Items(snapshot).Select(item => item.Value));
+        string.Join('|', Items(snapshot).SelectMany(item => item.Values).Select(value => value.Text));
 
-    private static string Pair(double down, double up) =>
-        "\u2193" + ByteRate.PerSecond(down) + "  \u2191" + ByteRate.PerSecond(up);
+    private const string Down = "\u2193";
+    private const string Up = "\u2191";
+
+    private static BandValue Rate(string arrow, double bytesPerSecond) =>
+        new(arrow + ByteRate.PerSecond(bytesPerSecond), arrow + ByteRate.WidestRate);
 }

@@ -5,25 +5,40 @@ namespace JKBar.Core.Presentation;
 
 public static class ByteRate
 {
-    private const double Kilobyte = 1024d;
-    private const double Megabyte = Kilobyte * 1024d;
-    private const double Gigabyte = Megabyte * 1024d;
+    private const double Step = 1024d;
+    private const double WidestNumber = 9999d;
+
+    private static readonly string[] Units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
 
     /// <summary>
-    /// Whole units below a megabyte. A readout jittering between 1013 and 1021 B/s carries no information the
-    /// eye can use, and a changing string forces the whole band to repaint.
+    /// Widest string <see cref="PerSecond"/> can return: four digits, and M is the broadest of the unit letters.
+    /// </summary>
+    public const string WidestRate = "1023 MB/s";
+
+    public const string WidestPercent = "100%";
+
+    /// <summary>
+    /// A decimal only while it still says something: 1.4 MB/s is worth telling from 1.0, 431 MB/s is not.
+    /// Kept inside <see cref="WidestRate"/> so layout can reserve a fixed box and a reading stops shifting
+    /// its neighbours.
     /// </summary>
     public static string PerSecond(double bytesPerSecond)
     {
         var value = double.IsFinite(bytesPerSecond) ? Math.Max(0, bytesPerSecond) : 0;
+        var unit = 0;
 
-        return value switch
+        while (value >= Step && unit < Units.Length - 1)
         {
-            < Kilobyte => Format(value, 0, "B/s"),
-            < Megabyte => Format(value / Kilobyte, 0, "KB/s"),
-            < Gigabyte => Format(value / Megabyte, 1, "MB/s"),
-            _ => Format(value / Gigabyte, 1, "GB/s")
-        };
+            value /= Step;
+            unit++;
+        }
+
+        // Past this the figure is not a reading of anything, but the box still has to hold whatever is printed.
+        value = Math.Min(value, WidestNumber);
+
+        var digits = unit > 0 && value < 10 ? "0.0" : "0";
+
+        return value.ToString(digits, CultureInfo.InvariantCulture) + " " + Units[unit];
     }
 
     public static string Percent(double percent)
@@ -32,7 +47,4 @@ public static class ByteRate
 
         return value.ToString("0", CultureInfo.InvariantCulture) + "%";
     }
-
-    private static string Format(double value, int decimals, string unit) =>
-        value.ToString("F" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture) + " " + unit;
 }
