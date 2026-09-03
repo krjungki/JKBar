@@ -42,12 +42,113 @@ internal sealed class JkBarContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
+        var overlap = BuildOverlapMenu();
+        var band = BuildBandMenu();
+
+        menu.Items.Add(overlap);
+        menu.Items.Add(band);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("알림 펴짐 미리보기", null, (_, _) => _bar.Announce(TimeSpan.FromSeconds(3)));
         menu.Items.Add("현재 크기 보기", null, (_, _) => ShowMeasurements());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => Quit());
 
+        menu.Opening += (_, _) =>
+        {
+            RefreshOverlapChecks(overlap);
+            RefreshBandChecks(band);
+        };
+
         return menu;
+    }
+
+    private ToolStripMenuItem BuildOverlapMenu()
+    {
+        var menu = new ToolStripMenuItem("겹침");
+
+        foreach (var (label, mode) in new[]
+        {
+            ("항상 위", OverlapMode.Floating),
+            ("자리 예약 (창이 아래에서 시작)", OverlapMode.ReserveTopEdge),
+            ("바탕화면에 고정 (창 뒤로)", OverlapMode.PinnedToDesktop)
+        })
+        {
+            var value = mode;
+            var item = new ToolStripMenuItem(label) { Tag = value };
+            item.Click += (_, _) => _bar.SetOverlap(value);
+            menu.DropDownItems.Add(item);
+        }
+
+        return menu;
+    }
+
+    private ToolStripMenuItem BuildBandMenu()
+    {
+        var menu = new ToolStripMenuItem("예약 띠");
+        var colours = new ToolStripMenuItem("색");
+
+        foreach (var (label, colour) in new[]
+        {
+            ("검정", Color.Black),
+            ("진회색", Color.FromArgb(28, 28, 30)),
+            ("흰색", Color.White)
+        })
+        {
+            var value = colour;
+            var item = new ToolStripMenuItem(label) { Tag = value };
+            item.Click += (_, _) => _bar.SetBand(_bar.Band with { Colour = value });
+            colours.DropDownItems.Add(item);
+        }
+
+        colours.DropDownItems.Add(new ToolStripSeparator());
+        colours.DropDownItems.Add("직접 선택...", null, (_, _) => PickColour());
+
+        var opacity = new ToolStripMenuItem("투명도");
+        foreach (var step in new[] { 100, 75, 50, 25, 0 })
+        {
+            var value = step;
+            var item = new ToolStripMenuItem($"{value}%") { Tag = value };
+            item.Click += (_, _) => _bar.SetBand(_bar.Band with { OpacityPercent = value });
+            opacity.DropDownItems.Add(item);
+        }
+
+        menu.DropDownItems.Add(colours);
+        menu.DropDownItems.Add(opacity);
+
+        return menu;
+    }
+
+    private void PickColour()
+    {
+        using var dialog = new ColorDialog { Color = _bar.Band.Colour, FullOpen = true, AnyColor = true };
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            _bar.SetBand(_bar.Band with { Colour = dialog.Color });
+        }
+    }
+
+    private void RefreshOverlapChecks(ToolStripMenuItem overlap)
+    {
+        foreach (var item in overlap.DropDownItems.OfType<ToolStripMenuItem>())
+        {
+            item.Checked = item.Tag is OverlapMode mode && mode == _bar.Overlap;
+        }
+    }
+
+    /// <summary>The band only exists while the edge is reserved, so the menu says so rather than doing nothing.</summary>
+    private void RefreshBandChecks(ToolStripMenuItem band)
+    {
+        band.Enabled = _bar.Overlap == OverlapMode.ReserveTopEdge;
+
+        foreach (var item in band.DropDownItems.OfType<ToolStripMenuItem>().SelectMany(g => g.DropDownItems.OfType<ToolStripMenuItem>()))
+        {
+            item.Checked = item.Tag switch
+            {
+                Color colour => colour.ToArgb() == _bar.Band.Colour.ToArgb(),
+                int percent => percent == _bar.Band.Opacity,
+                _ => false
+            };
+        }
     }
 
     private void OpenMenu()

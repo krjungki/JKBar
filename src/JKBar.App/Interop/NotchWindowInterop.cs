@@ -11,15 +11,14 @@ namespace JKBar.App.Interop;
 /// </summary>
 internal static class NotchWindowInterop
 {
-    private const int GwlExStyle = -20;
-
     internal const int WsExToolWindow = 0x00000080;
     internal const int WsExTransparent = 0x00000020;
     internal const int WsExNoActivate = 0x08000000;
     internal const int WsExLayered = 0x00080000;
-    private const int WsExTopMost = 0x00000008;
 
     private static readonly IntPtr HwndTopMost = new(-1);
+    private static readonly IntPtr HwndNoTopMost = new(-2);
+    private static readonly IntPtr HwndBottom = new(1);
 
     private const uint SwpNoMove = 0x0002;
     private const uint SwpNoSize = 0x0001;
@@ -30,9 +29,6 @@ internal static class NotchWindowInterop
     internal const int WmDisplayChange = 0x007E;
     internal const int WmSettingChange = 0x001A;
     internal const int WmWindowPosChanging = 0x0046;
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -55,7 +51,12 @@ internal static class NotchWindowInterop
     /// Holds the window in the topmost band by editing the pending WINDOWPOS. Calling SetWindowPos from inside
     /// WM_WINDOWPOSCHANGING would cancel the very move that raised the message.
     /// </summary>
-    internal static void PinToTop(IntPtr lParam)
+    internal static void PinToTop(IntPtr lParam) => Pin(lParam, HwndTopMost);
+
+    /// <summary>The same treatment for the desktop mode, where the shell keeps trying to lift the window.</summary>
+    internal static void PinToBottom(IntPtr lParam) => Pin(lParam, HwndBottom);
+
+    private static void Pin(IntPtr lParam, IntPtr insertAfter)
     {
         if (lParam == IntPtr.Zero)
         {
@@ -63,7 +64,7 @@ internal static class NotchWindowInterop
         }
 
         var position = Marshal.PtrToStructure<WindowPos>(lParam);
-        position.HwndInsertAfter = HwndTopMost;
+        position.HwndInsertAfter = insertAfter;
         position.Flags &= ~SwpNoZOrder;
         Marshal.StructureToPtr(position, lParam, fDeleteOld: false);
     }
@@ -76,8 +77,17 @@ internal static class NotchWindowInterop
         }
     }
 
-    internal static bool IsTopMost(IntPtr hwnd) =>
-        hwnd != IntPtr.Zero && (GetWindowLong(hwnd, GwlExStyle) & WsExTopMost) != 0;
+    /// <summary>Desktop pinning keeps the window bottom-most rather than reparenting it under the wallpaper.</summary>
+    internal static void SendToBottom(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowPos(hwnd, HwndNoTopMost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        SetWindowPos(hwnd, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect

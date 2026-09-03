@@ -11,7 +11,10 @@ internal sealed class NotchForm : Form
     private readonly System.Windows.Forms.Timer _animation = new() { Interval = 15 };
     private readonly System.Windows.Forms.Timer _dwell = new();
     private readonly System.Diagnostics.Stopwatch _clock = new();
+    private readonly AppBarReservation _reservation = new();
 
+    private OverlapMode _overlap = OverlapMode.Floating;
+    private BandStyle _band = BandStyle.Default;
     private NotchMetrics _shown = NotchMetrics.MacBookPro14;
     private NotchMetrics _from = NotchMetrics.MacBookPro14;
     private NotchMetrics _to = NotchMetrics.MacBookPro14;
@@ -26,6 +29,7 @@ internal sealed class NotchForm : Form
 
         _animation.Tick += (_, _) => Advance();
         _dwell.Tick += (_, _) => Collapse();
+        _reservation.Claimed += () => NotchWindowInterop.RaiseToTop(Handle);
     }
 
     /// <summary>
@@ -50,6 +54,58 @@ internal sealed class NotchForm : Form
 
     /// <summary>Resting width in logical pixels, before DPI scaling.</summary>
     internal int LogicalWidth => Resting().Width;
+
+    internal OverlapMode Overlap => _overlap;
+
+    /// <summary>Only visible in the reserving mode, where the band shows either side of the bar.</summary>
+    internal BandStyle Band => _band;
+
+    internal void SetBand(BandStyle style)
+    {
+        _band = style;
+        _reservation.SetStyle(style);
+    }
+
+    internal void SetOverlap(OverlapMode mode)
+    {
+        _overlap = mode;
+        ApplyOverlap();
+        Redraw();
+    }
+
+    /// <summary>
+    /// Reserving the edge and floating both keep the bar on top; only the desktop mode drops it, and it has to be
+    /// pushed down again whenever the shell rearranges the z-order.
+    /// </summary>
+    private void ApplyOverlap()
+    {
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        if (_overlap == OverlapMode.ReserveTopEdge)
+        {
+            var area = Screen.FromHandle(Handle).Bounds;
+            _reservation.SetStyle(_band);
+            _reservation.Reserve(
+                new NotchGeometry.Rect(area.Left, area.Top, area.Right, area.Bottom),
+                Scaled().Height);
+        }
+        else
+        {
+            _reservation.Release();
+        }
+
+        if (_overlap == OverlapMode.PinnedToDesktop)
+        {
+            NotchWindowInterop.SendToBottom(Handle);
+        }
+        else
+        {
+            NotchWindowInterop.RaiseToTop(Handle);
+        }
+    }
 
     /// <summary>
     /// Opens the bar into its alert panel and closes it again after <paramref name="dwell"/>. The content that
@@ -119,7 +175,7 @@ internal sealed class NotchForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        NotchWindowInterop.RaiseToTop(Handle);
+        ApplyOverlap();
         Settle();
     }
 
@@ -130,26 +186,27 @@ internal sealed class NotchForm : Form
             case NotchWindowInterop.WmDpiChanged:
             case NotchWindowInterop.WmDisplayChange:
             case NotchWindowInterop.WmSettingChange:
-                // Moving to another monitor changes the DPI, and a shell restart rearranges the z-order.
+                // Moving to another monitor changes the DPI, and a shell restart rearranges the z-order. The
+                // reserved band is in physical pixels, so it has to be claimed again at the new scale.
                 base.WndProc(ref m);
-                EnsureTopMost();
+                ApplyOverlap();
                 Redraw();
                 return;
 
             case NotchWindowInterop.WmWindowPosChanging:
-                NotchWindowInterop.PinToTop(m.LParam);
+                if (_overlap == OverlapMode.PinnedToDesktop)
+                {
+                    NotchWindowInterop.PinToBottom(m.LParam);
+                }
+                else
+                {
+                    NotchWindowInterop.PinToTop(m.LParam);
+                }
+
                 break;
         }
 
         base.WndProc(ref m);
-    }
-
-    private void EnsureTopMost()
-    {
-        if (IsHandleCreated && !NotchWindowInterop.IsTopMost(Handle))
-        {
-            NotchWindowInterop.RaiseToTop(Handle);
-        }
     }
 
     private void Redraw()
@@ -189,6 +246,8 @@ internal sealed class NotchForm : Form
     {
         if (disposing)
         {
+            // Before the timers, so a reservation cannot outlive the process and leave the work area shrunk.
+            _reservation.Dispose();
             _animation.Dispose();
             _dwell.Dispose();
         }
