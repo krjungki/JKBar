@@ -6,6 +6,9 @@ namespace JKBar.App.Rendering;
 
 internal static class NotchRenderer
 {
+    /// <summary>Drawn above the bitmap so the row against the panel edge can never be a blend of shape and nothing.</summary>
+    private const int TopOverdraw = 2;
+
     /// <summary>
     /// Apple gives the cutout a smaller radius at the top than the bottom. Ours starts flush against the panel
     /// edge, so only the bottom pair is drawn as a curve and the top corners stay square.
@@ -13,6 +16,10 @@ internal static class NotchRenderer
     internal static void Paint(Graphics g, NotchMetrics metrics, Color fill)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        // GDI+ otherwise puts pixel centres on integer coordinates, so a fill starting at 0 covers the first
+        // row and column only half way and the desktop shows through the edges.
+        g.PixelOffsetMode = PixelOffsetMode.Half;
         g.Clear(Color.Transparent);
 
         using var path = Silhouette(metrics);
@@ -29,21 +36,17 @@ internal static class NotchRenderer
 
         if (radius <= 0)
         {
-            path.AddRectangle(new Rectangle(0, 0, width, height));
+            path.AddRectangle(new Rectangle(0, -TopOverdraw, width, height + TopOverdraw));
             return path;
         }
 
-        // The bitmap is exactly the notch, so the right and bottom edges land on width-1 and height-1.
-        var right = width - 1;
-        var bottom = height - 1;
         var diameter = radius * 2;
 
         path.StartFigure();
-        path.AddLine(0, 0, right, 0);
-        path.AddLine(right, 0, right, bottom - radius);
-        path.AddArc(right - diameter, bottom - diameter, diameter, diameter, 0, 90);
-        path.AddLine(radius, bottom, radius, bottom);
-        path.AddArc(0, bottom - diameter, diameter, diameter, 90, 90);
+        path.AddLine(0, -TopOverdraw, width, -TopOverdraw);
+        path.AddLine(width, -TopOverdraw, width, height - radius);
+        path.AddArc(width - diameter, height - diameter, diameter, diameter, 0, 90);
+        path.AddArc(0, height - diameter, diameter, diameter, 90, 90);
         path.CloseFigure();
 
         return path;

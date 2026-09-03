@@ -6,6 +6,8 @@ namespace JKBar.App;
 
 internal sealed class JkBarContext : ApplicationContext
 {
+    private const string ProportionalTag = "proportional";
+
     private readonly NotchForm _bar = new();
     private readonly NotifyIcon _tray = new();
     private readonly IntPtr _iconHandle;
@@ -30,22 +32,12 @@ internal sealed class JkBarContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        var width = new ToolStripMenuItem("너비");
-
-        foreach (var (label, value) in WidthChoices())
-        {
-            var item = new ToolStripMenuItem(label) { Tag = value };
-            item.Click += (_, _) =>
-            {
-                _bar.SetLogicalWidth(value);
-                RefreshChecks(width);
-            };
-            width.DropDownItems.Add(item);
-        }
+        var width = BuildWidthMenu();
 
         menu.Items.Add(width);
         menu.Items.Add(BuildAlignmentMenu());
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("알림 펴짐 미리보기", null, (_, _) => _bar.Announce(TimeSpan.FromSeconds(3)));
         menu.Items.Add("현재 크기 보기", null, (_, _) => ShowMeasurements());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => Quit());
@@ -55,21 +47,27 @@ internal sealed class JkBarContext : ApplicationContext
         return menu;
     }
 
-    private List<(string Label, int Value)> WidthChoices()
+    private ToolStripMenuItem BuildWidthMenu()
     {
-        var proportional = NotchMetrics.ProportionalWidth(_bar.LogicalScreenWidth());
-        var choices = new List<(string, int)>
-        {
-            ($"macOS 14\" 값 그대로 ({NotchMetrics.MacBookPro14.Width})", NotchMetrics.MacBookPro14.Width),
-            ($"화면 폭의 12.2% ({proportional})", proportional)
-        };
+        var menu = new ToolStripMenuItem("너비");
 
-        foreach (var step in new[] { 150, 220, 260, 300, 360 })
+        var proportional = new ToolStripMenuItem($"화면 폭의 {NotchMetrics.MacWidthShareOfScreen:P1} (macOS 비율)")
         {
-            choices.Add(($"{step}", step));
+            Tag = ProportionalTag
+        };
+        proportional.Click += (_, _) => _bar.UseProportionalWidth();
+        menu.DropDownItems.Add(proportional);
+        menu.DropDownItems.Add(new ToolStripSeparator());
+
+        foreach (var step in new[] { NotchMetrics.MacBookPro14.Width, 150, 220, 260, 300, 360 })
+        {
+            var value = step;
+            var item = new ToolStripMenuItem($"{value} 고정") { Tag = value };
+            item.Click += (_, _) => _bar.SetLogicalWidth(value);
+            menu.DropDownItems.Add(item);
         }
 
-        return choices;
+        return menu;
     }
 
     private ToolStripMenuItem BuildAlignmentMenu()
@@ -91,21 +89,27 @@ internal sealed class JkBarContext : ApplicationContext
 
     private void RefreshChecks(ToolStripMenuItem width)
     {
-        foreach (ToolStripMenuItem item in width.DropDownItems)
+        foreach (var item in width.DropDownItems.OfType<ToolStripMenuItem>())
         {
-            item.Checked = item.Tag is int value && value == _bar.LogicalWidth;
+            item.Checked = item.Tag switch
+            {
+                string tag when tag == ProportionalTag => _bar.WidthFollowsScreen,
+                int value => !_bar.WidthFollowsScreen && value == _bar.LogicalWidth,
+                _ => false
+            };
         }
     }
 
     private void ShowMeasurements()
     {
-        var bounds = _bar.CurrentBounds();
+        var actual = _bar.ActualBounds();
         var screen = _bar.LogicalScreenWidth();
         var share = screen > 0 ? _bar.LogicalWidth / (double)screen : 0;
 
         MessageBox.Show(
-            $"논리 크기: {_bar.LogicalWidth} x {NotchMetrics.MacBookPro14.Height}\n"
-            + $"실제 픽셀: {bounds.Width} x {bounds.Height}\n"
+            $"논리 너비: {_bar.LogicalWidth}\n"
+            + $"실제 픽셀: {actual.Width} x {actual.Height}\n"
+            + $"창 상단 y: {actual.Top}  (0이면 패널 끝에 붙음)\n"
             + $"화면 폭 대비: {share:P1}  (macOS 기준 12.2%)",
             "JKBar",
             MessageBoxButtons.OK,

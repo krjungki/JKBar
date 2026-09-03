@@ -1,5 +1,6 @@
 // Ported from JKMon.App/Interop/OverlayWindowInterop.cs, trimmed to what a click-through layered bar needs.
 using System.Runtime.InteropServices;
+using JKBar.Core.Layout;
 
 namespace JKBar.App.Interop;
 
@@ -77,6 +78,24 @@ internal static class NotchWindowInterop
 
     internal static bool IsTopMost(IntPtr hwnd) =>
         hwnd != IntPtr.Zero && (GetWindowLong(hwnd, GwlExStyle) & WsExTopMost) != 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+
+    internal static NotchGeometry.Rect GetBounds(IntPtr hwnd) =>
+        hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var rect)
+            ? new NotchGeometry.Rect(rect.Left, rect.Top, rect.Right, rect.Bottom)
+            : default;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint

@@ -8,8 +8,18 @@ namespace JKBar.App;
 
 internal sealed class NotchForm : Form
 {
-    private NotchMetrics _metrics = NotchMetrics.MacBookPro14;
+    private readonly System.Windows.Forms.Timer _animation = new() { Interval = 15 };
+    private readonly System.Windows.Forms.Timer _dwell = new();
+    private readonly System.Diagnostics.Stopwatch _clock = new();
+
+    private bool _proportionalWidth = true;
+    private int _fixedLogicalWidth = NotchMetrics.MacBookPro14.Width;
     private NotchAlignment _alignment = NotchAlignment.Centre;
+
+    private NotchMetrics _shown = NotchMetrics.MacBookPro14;
+    private NotchMetrics _from = NotchMetrics.MacBookPro14;
+    private NotchMetrics _to = NotchMetrics.MacBookPro14;
+    private bool _expanded;
 
     internal NotchForm()
     {
@@ -17,6 +27,9 @@ internal sealed class NotchForm : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Text = "JKBar";
+
+        _animation.Tick += (_, _) => Advance();
+        _dwell.Tick += (_, _) => Collapse();
     }
 
     /// <summary>
@@ -39,13 +52,23 @@ internal sealed class NotchForm : Form
 
     protected override bool ShowWithoutActivation => true;
 
-    /// <summary>Logical width, before DPI scaling. The eventual settings screen will own this.</summary>
-    internal int LogicalWidth => _metrics.Width;
+    /// <summary>Resting width in logical pixels, before DPI scaling. The eventual settings screen will own this.</summary>
+    internal int LogicalWidth => Resting().Width;
+
+    internal bool WidthFollowsScreen => _proportionalWidth;
+
+    /// <summary>Ties the resting width to Apple's share of screen width, so it holds on any display.</summary>
+    internal void UseProportionalWidth()
+    {
+        _proportionalWidth = true;
+        Settle();
+    }
 
     internal void SetLogicalWidth(int logicalWidth)
     {
-        _metrics = _metrics with { Width = Math.Max(1, logicalWidth) };
-        Redraw();
+        _proportionalWidth = false;
+        _fixedLogicalWidth = Math.Max(1, logicalWidth);
+        Settle();
     }
 
     internal void Align(NotchAlignment alignment)
@@ -54,8 +77,72 @@ internal sealed class NotchForm : Form
         Redraw();
     }
 
-    /// <summary>Physical size and position of the bar right now, for reporting what a setting actually produced.</summary>
-    internal NotchGeometry.Rect CurrentBounds() => ComputeBounds(Scaled());
+    /// <summary>
+    /// Opens the bar into its alert panel and closes it again after <paramref name="dwell"/>. The content that
+    /// belongs inside is a later phase; this is the motion the content will ride on.
+    /// </summary>
+    internal void Announce(TimeSpan dwell)
+    {
+        _expanded = true;
+        StartTransition(Resting().Expanded());
+
+        _dwell.Stop();
+        _dwell.Interval = Math.Max(1, (int)dwell.TotalMilliseconds);
+        _dwell.Start();
+    }
+
+    private void Collapse()
+    {
+        _dwell.Stop();
+        _expanded = false;
+        StartTransition(Resting());
+    }
+
+    /// <summary>Jumps to the size a settings change implies, without animating a change the user just made.</summary>
+    private void Settle()
+    {
+        _animation.Stop();
+        _shown = _expanded ? Resting().Expanded() : Resting();
+        Redraw();
+    }
+
+    private void StartTransition(NotchMetrics target)
+    {
+        _from = _shown;
+        _to = target;
+        _clock.Restart();
+        _animation.Start();
+    }
+
+    private void Advance()
+    {
+        var progress = _clock.Elapsed.TotalMilliseconds / NotchAnimation.Duration.TotalMilliseconds;
+        if (progress >= 1d)
+        {
+            _animation.Stop();
+            _clock.Stop();
+            _shown = _to;
+        }
+        else
+        {
+            _shown = NotchAnimation.Between(_from, _to, progress);
+        }
+
+        Redraw();
+    }
+
+    private NotchMetrics Resting()
+    {
+        var width = _proportionalWidth
+            ? NotchMetrics.ProportionalWidth(LogicalScreenWidth())
+            : _fixedLogicalWidth;
+
+        return NotchMetrics.MacBookPro14 with { Width = width };
+    }
+
+    /// <summary>What the window manager thinks, which is the only way to confirm the bar really reaches the edge.</summary>
+    internal NotchGeometry.Rect ActualBounds() =>
+        IsHandleCreated ? NotchWindowInterop.GetBounds(Handle) : default;
 
     /// <summary>Host monitor width in logical pixels, so ratio-derived widths can be offered in the same unit.</summary>
     internal int LogicalScreenWidth() =>
@@ -65,7 +152,7 @@ internal sealed class NotchForm : Form
     {
         base.OnHandleCreated(e);
         NotchWindowInterop.RaiseToTop(Handle);
-        Redraw();
+        Settle();
     }
 
     protected override void WndProc(ref Message m)
@@ -116,7 +203,7 @@ internal sealed class NotchForm : Form
         NotchWindowInterop.PushLayeredSurface(Handle, bitmap, bounds.Left, bounds.Top);
     }
 
-    private NotchMetrics Scaled() => _metrics.ScaledBy(ScaleFor());
+    private NotchMetrics Scaled() => _shown.ScaledBy(ScaleFor());
 
     private NotchGeometry.Rect ComputeBounds(NotchMetrics scaled)
     {
@@ -129,4 +216,15 @@ internal sealed class NotchForm : Form
 
     /// <summary>GDI does not scale for DPI on its own, so every drawn size is multiplied by this.</summary>
     private double ScaleFor() => IsHandleCreated ? DeviceDpi / 96d : 1d;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _animation.Dispose();
+            _dwell.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 }
