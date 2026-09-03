@@ -42,6 +42,20 @@ internal sealed class AppBarReservation : Form
 
     protected override bool ShowWithoutActivation => true;
 
+    /// <summary>
+    /// Showing applies WinForms' own bounds, which would undo a surface pushed before it. The bar hit exactly
+    /// this and ended up at the top left, so the band repaints once it is really on screen.
+    /// </summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+
+        if (_registered)
+        {
+            PaintBand();
+        }
+    }
+
     internal void SetStyle(BandStyle style)
     {
         _style = style;

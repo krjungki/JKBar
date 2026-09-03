@@ -49,9 +49,9 @@ public class BandStyleTests
     }
 
     [Fact]
-    public void DefaultsToAnOpaqueBlackBand()
+    public void DefaultsToTheChosenBandStyle()
     {
-        Assert.Equal(Color.Black, BandStyle.Default.Colour);
-        Assert.Equal(100, BandStyle.Default.Opacity);
+        Assert.Equal(Color.White, BandStyle.Default.Colour);
+        Assert.Equal(25, BandStyle.Default.Opacity);
     }
 }

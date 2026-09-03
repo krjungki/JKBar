@@ -13,7 +13,7 @@ internal sealed class NotchForm : Form
     private readonly System.Diagnostics.Stopwatch _clock = new();
     private readonly AppBarReservation _reservation = new();
 
-    private OverlapMode _overlap = OverlapMode.Floating;
+    private OverlapMode _overlap = OverlapMode.ReserveTopEdge;
     private BandStyle _band = BandStyle.Default;
     private NotchMetrics _shown = NotchMetrics.MacBookPro14;
     private NotchMetrics _from = NotchMetrics.MacBookPro14;

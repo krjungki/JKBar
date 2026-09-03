@@ -5,7 +5,7 @@ namespace JKBar.Core.Layout;
 
 public sealed record BandStyle(Color Colour, int OpacityPercent)
 {
-    public static BandStyle Default { get; } = new(Color.Black, 100);
+    public static BandStyle Default { get; } = new(Color.White, 25);
 
     public int Opacity => Math.Clamp(OpacityPercent, 0, 100);
 
