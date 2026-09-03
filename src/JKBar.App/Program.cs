@@ -1,4 +1,4 @@
-// Process entry point. The bar window and tray arrive in later phases; this only proves the app host builds.
+// Process entry point.
 using System.Windows.Forms;
 
 namespace JKBar.App;
@@ -6,9 +6,9 @@ namespace JKBar.App;
 internal static class Program
 {
     [STAThread]
-    private static int Main()
+    private static void Main()
     {
         ApplicationConfiguration.Initialize();
-        return 0;
+        Application.Run(new JkBarContext());
     }
 }
