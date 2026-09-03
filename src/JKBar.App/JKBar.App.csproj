@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>JKBar</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Background GC trades memory for pause time, which an always-resident bar does not need. -->
+    <ConcurrentGarbageCollector>false</ConcurrentGarbageCollector>
+    <TieredCompilationQuickJitForLoops>true</TieredCompilationQuickJitForLoops>
+    <!-- WFO0003 wants DPI set from code; it stays in the manifest so it applies before the first window exists. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Managed assemblies are bundled into the host so a portable copy is a handful of files instead of 250. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Native libraries stay beside the executable: self-extracting them would unpack into TEMP on every new build. -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <!-- Compression saves disk but costs private working set, which this resident tool cannot afford. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JKBar.Core\JKBar.Core.csproj" />
+  </ItemGroup>
+
+</Project>
