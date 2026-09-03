@@ -12,6 +12,7 @@ internal static class BandRenderer
     private const float PaddingShareOfHeight = 0.22f;
 
     /// <param name="notch">Where the bar sits, in surface coordinates, so content can keep clear of it.</param>
+    /// <param name="items">In display order, left to right.</param>
     internal static void Paint(
         Graphics g,
         Size surface,
@@ -80,9 +81,10 @@ internal static class BandRenderer
         var gap = padding;
         var right = slot.Right;
 
-        // Laid out from the right edge inwards, so the first item ends up nearest the notch.
-        foreach (var item in items)
+        // Right-aligned, so the list is walked backwards and callers can supply plain left-to-right order.
+        for (var i = items.Count - 1; i >= 0; i--)
         {
+            var item = items[i];
             var value = item.Value;
             var label = item.Label;
             var valueWidth = Measure(g, value, font, format);

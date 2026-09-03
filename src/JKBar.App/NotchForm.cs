@@ -4,6 +4,7 @@ using System.Globalization;
 using JKBar.App.Interop;
 using JKBar.App.Rendering;
 using JKBar.Core.Layout;
+using JKBar.Core.Metrics;
 using JKBar.Core.Presentation;
 
 namespace JKBar.App;
@@ -15,6 +16,7 @@ internal sealed class NotchForm : Form
     private readonly System.Diagnostics.Stopwatch _clock = new();
     private readonly AppBarReservation _reservation = new();
     private readonly System.Windows.Forms.Timer _content = new() { Interval = 1000 };
+    private readonly SystemMetricsCollector _metrics = new();
 
     private OverlapMode _overlap = OverlapMode.ReserveTopEdge;
     private BandStyle _band = BandStyle.Default;
@@ -109,7 +111,8 @@ internal sealed class NotchForm : Form
         }
 
         var now = DateTimeOffset.Now;
-        var signature = ClockSource.Signature(now);
+        var snapshot = _metrics.Read();
+        var signature = ClockSource.Signature(now) + MetricsSource.Signature(snapshot);
         if (!force && signature == _contentSignature)
         {
             return;
@@ -118,7 +121,7 @@ internal sealed class NotchForm : Form
         _contentSignature = signature;
         _reservation.SetContent(
             _image,
-            [ClockSource.Item(now, CultureInfo.CurrentCulture)],
+            [.. MetricsSource.Items(snapshot), ClockSource.Item(now, CultureInfo.CurrentCulture)],
             RestingNotchInBand());
     }
 
@@ -163,6 +166,9 @@ internal sealed class NotchForm : Form
         else
         {
             _content.Stop();
+
+            // A stopped collector would otherwise divide the whole pause by one interval on the next read.
+            _metrics.ResetBaseline();
             _reservation.Release();
         }
 
@@ -330,6 +336,7 @@ internal sealed class NotchForm : Form
             _animation.Dispose();
             _dwell.Dispose();
             _content.Dispose();
+            _metrics.Dispose();
             _image?.Dispose();
         }
 

@@ -17,6 +17,7 @@ internal sealed class AppBarReservation : Form
     private BandStyle _style = BandStyle.Default;
     private IReadOnlyList<BandItem> _items = [];
     private Image? _image;
+    private Bitmap? _surface;
     private int _height;
     private bool _registered;
 
@@ -139,13 +140,19 @@ internal sealed class AppBarReservation : Form
             return;
         }
 
-        using var bitmap = new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
-        using (var graphics = Graphics.FromImage(bitmap))
+        // Kept between repaints: the readouts change every second and this is as wide as the screen.
+        if (_surface is null || _surface.Width != _band.Width || _surface.Height != _band.Height)
         {
-            BandRenderer.Paint(graphics, bitmap.Size, _notch, _style, _image, _items);
+            _surface?.Dispose();
+            _surface = new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
         }
 
-        NotchWindowInterop.PushLayeredSurface(Handle, bitmap, _band.Left, _band.Top);
+        using (var graphics = Graphics.FromImage(_surface))
+        {
+            BandRenderer.Paint(graphics, _surface.Size, _notch, _style, _image, _items);
+        }
+
+        NotchWindowInterop.PushLayeredSurface(Handle, _surface, _band.Left, _band.Top);
     }
 
     protected override void WndProc(ref Message m)
@@ -168,6 +175,7 @@ internal sealed class AppBarReservation : Form
         if (disposing)
         {
             Release();
+            _surface?.Dispose();
         }
 
         base.Dispose(disposing);
