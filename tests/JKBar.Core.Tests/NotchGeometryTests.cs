@@ -1,4 +1,4 @@
-// Pins the placement rules the bar depends on, including the clamps that stop a bad width from leaving the screen.
+// Pins the placement rules the bar depends on, including the clamp that stops a bad width from leaving the screen.
 using JKBar.Core.Layout;
 
 namespace JKBar.Core.Tests;
@@ -10,7 +10,7 @@ public class NotchGeometryTests
     [Fact]
     public void CentresOnTheTopEdge()
     {
-        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8), NotchAlignment.Centre);
+        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8));
 
         Assert.Equal(1180, placed.Left);
         Assert.Equal(1380, placed.Right);
@@ -24,45 +24,29 @@ public class NotchGeometryTests
     {
         var secondMonitor = new NotchGeometry.Rect(-1920, -200, 0, 880);
 
-        var placed = NotchGeometry.Place(secondMonitor, NotchMetrics.MacBookPro14, NotchAlignment.Centre);
+        var placed = NotchGeometry.Place(secondMonitor, NotchMetrics.MacBookPro14);
 
         Assert.Equal(-200, placed.Top);
     }
 
-    [Theory]
-    [InlineData(NotchAlignment.Left, 24, 24)]
-    [InlineData(NotchAlignment.Right, 24, 2336)]
-    public void HonoursTheEdgeInset(NotchAlignment alignment, int inset, int expectedLeft)
-    {
-        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8), alignment, inset);
-
-        Assert.Equal(expectedLeft, placed.Left);
-    }
-
+    /// <summary>A monitor left of the primary has negative coordinates, where centring arithmetic is easy to get wrong.</summary>
     [Fact]
-    public void IgnoresTheInsetWhenCentred()
+    public void CentresOnAMonitorWithANegativeOrigin()
     {
-        var withInset = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8), NotchAlignment.Centre, 400);
-        var without = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8), NotchAlignment.Centre);
+        var secondMonitor = new NotchGeometry.Rect(-1920, 0, 0, 1080);
 
-        Assert.Equal(without, withInset);
+        var placed = NotchGeometry.Place(secondMonitor, new NotchMetrics(200, 40, 8));
+
+        Assert.Equal(-1060, placed.Left);
+        Assert.Equal(-860, placed.Right);
     }
 
     [Fact]
     public void ClampsAWidthWiderThanTheScreen()
     {
-        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(4000, 40, 8), NotchAlignment.Centre);
+        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(4000, 40, 8));
 
         Assert.Equal(0, placed.Left);
         Assert.Equal(2560, placed.Right);
-    }
-
-    [Fact]
-    public void KeepsAnOversizedInsetOnScreen()
-    {
-        var placed = NotchGeometry.Place(Screen2560, new NotchMetrics(200, 40, 8), NotchAlignment.Right, 9000);
-
-        Assert.Equal(0, placed.Left);
-        Assert.Equal(200, placed.Right);
     }
 }

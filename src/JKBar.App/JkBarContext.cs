@@ -1,4 +1,5 @@
 // Hosts the bar and its tray menu. The bar is click-through, so the tray is the only way to reach or quit the app.
+using System.Reflection;
 using JKBar.Core;
 using JKBar.Core.Layout;
 
@@ -6,7 +7,13 @@ namespace JKBar.App;
 
 internal sealed class JkBarContext : ApplicationContext
 {
-    private const string ProportionalTag = "proportional";
+    /// <summary>
+    /// The icon opens this itself on right-click but exposes no public way to do the same from the left button.
+    /// Borrowing its own method keeps both buttons identical, including how the menu dismisses; a test pins the
+    /// name so a future runtime cannot drop it silently.
+    /// </summary>
+    private static readonly MethodInfo? IconMenuOpener =
+        typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic);
 
     private readonly NotchForm _bar = new();
     private readonly NotifyIcon _tray = new();
@@ -20,84 +27,40 @@ internal sealed class JkBarContext : ApplicationContext
         _tray.Icon = icon;
         _tray.Text = $"JKBar {BuildInfo.Version}";
         _tray.Visible = true;
+        _tray.MouseUp += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                OpenMenu();
+            }
+        };
 
         _bar.Show();
         _tray.ContextMenuStrip = BuildMenu();
     }
 
-    /// <summary>
-    /// The width candidates are here so the default can be judged on screen rather than argued from numbers.
-    /// Nothing is persisted yet; the choice lasts for the session.
-    /// </summary>
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
-        var width = BuildWidthMenu();
-
-        menu.Items.Add(width);
-        menu.Items.Add(BuildAlignmentMenu());
-        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("알림 펴짐 미리보기", null, (_, _) => _bar.Announce(TimeSpan.FromSeconds(3)));
         menu.Items.Add("현재 크기 보기", null, (_, _) => ShowMeasurements());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => Quit());
 
-        menu.Opening += (_, _) => RefreshChecks(width);
-
         return menu;
     }
 
-    private ToolStripMenuItem BuildWidthMenu()
+    private void OpenMenu()
     {
-        var menu = new ToolStripMenuItem("너비");
-
-        var proportional = new ToolStripMenuItem($"화면 폭의 {NotchMetrics.MacWidthShareOfScreen:P1} (macOS 비율)")
+        if (IconMenuOpener is not null)
         {
-            Tag = ProportionalTag
-        };
-        proportional.Click += (_, _) => _bar.UseProportionalWidth();
-        menu.DropDownItems.Add(proportional);
-        menu.DropDownItems.Add(new ToolStripSeparator());
-
-        foreach (var step in new[] { NotchMetrics.MacBookPro14.Width, 150, 220, 260, 300, 360 })
-        {
-            var value = step;
-            var item = new ToolStripMenuItem($"{value} 고정") { Tag = value };
-            item.Click += (_, _) => _bar.SetLogicalWidth(value);
-            menu.DropDownItems.Add(item);
+            IconMenuOpener.Invoke(_tray, null);
+            return;
         }
 
-        return menu;
-    }
-
-    private ToolStripMenuItem BuildAlignmentMenu()
-    {
-        var menu = new ToolStripMenuItem("위치");
-
-        foreach (var (label, value) in new[]
-        {
-            ("왼쪽", NotchAlignment.Left),
-            ("가운데", NotchAlignment.Centre),
-            ("오른쪽", NotchAlignment.Right)
-        })
-        {
-            menu.DropDownItems.Add(new ToolStripMenuItem(label, null, (_, _) => _bar.Align(value)));
-        }
-
-        return menu;
-    }
-
-    private void RefreshChecks(ToolStripMenuItem width)
-    {
-        foreach (var item in width.DropDownItems.OfType<ToolStripMenuItem>())
-        {
-            item.Checked = item.Tag switch
-            {
-                string tag when tag == ProportionalTag => _bar.WidthFollowsScreen,
-                int value => !_bar.WidthFollowsScreen && value == _bar.LogicalWidth,
-                _ => false
-            };
-        }
+        // Windows needs a foreground window of ours for the menu to dismiss on an outside click; the menu itself
+        // is the only one this app has, since the bar refuses activation.
+        _tray.ContextMenuStrip?.Show(Cursor.Position);
     }
 
     private void ShowMeasurements()
@@ -110,7 +73,7 @@ internal sealed class JkBarContext : ApplicationContext
             $"논리 너비: {_bar.LogicalWidth}\n"
             + $"실제 픽셀: {actual.Width} x {actual.Height}\n"
             + $"창 상단 y: {actual.Top}  (0이면 패널 끝에 붙음)\n"
-            + $"화면 폭 대비: {share:P1}  (macOS 기준 12.2%)",
+            + $"화면 폭 대비: {share:P1}  (macOS 기준 {NotchMetrics.MacWidthShareOfScreen:P1})",
             "JKBar",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
