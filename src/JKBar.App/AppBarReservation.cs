@@ -3,7 +3,9 @@
 // to grow past it when an alert opens.
 using System.Drawing.Imaging;
 using JKBar.App.Interop;
+using JKBar.App.Rendering;
 using JKBar.Core.Layout;
+using JKBar.Core.Presentation;
 
 namespace JKBar.App;
 
@@ -11,7 +13,10 @@ internal sealed class AppBarReservation : Form
 {
     private NotchGeometry.Rect _screen;
     private NotchGeometry.Rect _band;
+    private NotchGeometry.Rect _notch;
     private BandStyle _style = BandStyle.Default;
+    private IReadOnlyList<BandItem> _items = [];
+    private Image? _image;
     private int _height;
     private bool _registered;
 
@@ -59,6 +64,20 @@ internal sealed class AppBarReservation : Form
     internal void SetStyle(BandStyle style)
     {
         _style = style;
+
+        if (_registered)
+        {
+            PaintBand();
+        }
+    }
+
+    /// <param name="notch">The resting bar, in band coordinates. Using the resting size rather than the animated
+    /// one keeps a full-width surface from being redrawn on every frame of an alert.</param>
+    internal void SetContent(Image? image, IReadOnlyList<BandItem> items, NotchGeometry.Rect notch)
+    {
+        _image = image;
+        _items = items;
+        _notch = notch;
 
         if (_registered)
         {
@@ -123,7 +142,7 @@ internal sealed class AppBarReservation : Form
         using var bitmap = new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
-            graphics.Clear(_style.ForLayeredSurface());
+            BandRenderer.Paint(graphics, bitmap.Size, _notch, _style, _image, _items);
         }
 
         NotchWindowInterop.PushLayeredSurface(Handle, bitmap, _band.Left, _band.Top);

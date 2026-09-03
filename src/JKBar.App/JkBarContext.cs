@@ -114,8 +114,34 @@ internal sealed class JkBarContext : ApplicationContext
 
         menu.DropDownItems.Add(colours);
         menu.DropDownItems.Add(opacity);
+        menu.DropDownItems.Add(new ToolStripSeparator());
+        menu.DropDownItems.Add("이미지 선택...", null, (_, _) => PickImage());
+        menu.DropDownItems.Add("이미지 제거", null, (_, _) => _bar.ClearImage());
 
         return menu;
+    }
+
+    private void PickImage()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "띠 왼쪽에 표시할 이미지",
+            Filter = "이미지|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico|모든 파일|*.*"
+        };
+
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return;
+        }
+
+        if (!_bar.SetImage(dialog.FileName))
+        {
+            MessageBox.Show(
+                "이 파일은 이미지로 읽을 수 없습니다. 다른 파일을 골라 주세요.",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private void PickColour()

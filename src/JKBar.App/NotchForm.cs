@@ -1,8 +1,10 @@
 // The bar window: click-through, per-pixel alpha, pushed to the desktop with UpdateLayeredWindow.
 using System.Drawing.Imaging;
+using System.Globalization;
 using JKBar.App.Interop;
 using JKBar.App.Rendering;
 using JKBar.Core.Layout;
+using JKBar.Core.Presentation;
 
 namespace JKBar.App;
 
@@ -12,9 +14,12 @@ internal sealed class NotchForm : Form
     private readonly System.Windows.Forms.Timer _dwell = new();
     private readonly System.Diagnostics.Stopwatch _clock = new();
     private readonly AppBarReservation _reservation = new();
+    private readonly System.Windows.Forms.Timer _content = new() { Interval = 1000 };
 
     private OverlapMode _overlap = OverlapMode.ReserveTopEdge;
     private BandStyle _band = BandStyle.Default;
+    private Image? _image;
+    private string _contentSignature = string.Empty;
     private NotchMetrics _shown = NotchMetrics.MacBookPro14;
     private NotchMetrics _from = NotchMetrics.MacBookPro14;
     private NotchMetrics _to = NotchMetrics.MacBookPro14;
@@ -29,6 +34,7 @@ internal sealed class NotchForm : Form
 
         _animation.Tick += (_, _) => Advance();
         _dwell.Tick += (_, _) => Collapse();
+        _content.Tick += (_, _) => RefreshContent(force: false);
         _reservation.Claimed += () => NotchWindowInterop.RaiseToTop(Handle);
     }
 
@@ -66,6 +72,66 @@ internal sealed class NotchForm : Form
         _reservation.SetStyle(style);
     }
 
+    internal bool HasImage => _image is not null;
+
+    /// <summary>Returns false when the file could not be read as a picture, so the caller can say so.</summary>
+    internal bool SetImage(string path)
+    {
+        var loaded = BandImage.Load(path);
+        if (loaded is null)
+        {
+            return false;
+        }
+
+        _image?.Dispose();
+        _image = loaded;
+        RefreshContent(force: true);
+
+        return true;
+    }
+
+    internal void ClearImage()
+    {
+        _image?.Dispose();
+        _image = null;
+        RefreshContent(force: true);
+    }
+
+    /// <summary>
+    /// Rebuilds the band's readouts. The surface is the full screen width, so it is only pushed when something
+    /// visible actually changed rather than on every tick.
+    /// </summary>
+    private void RefreshContent(bool force)
+    {
+        if (!IsHandleCreated || _overlap != OverlapMode.ReserveTopEdge)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        var signature = ClockSource.Signature(now);
+        if (!force && signature == _contentSignature)
+        {
+            return;
+        }
+
+        _contentSignature = signature;
+        _reservation.SetContent(
+            _image,
+            [ClockSource.Item(now, CultureInfo.CurrentCulture)],
+            RestingNotchInBand());
+    }
+
+    /// <summary>The resting bar in band coordinates, which is the gap the band's content has to work around.</summary>
+    private NotchGeometry.Rect RestingNotchInBand()
+    {
+        var area = Screen.FromHandle(Handle).Bounds;
+        var screen = new NotchGeometry.Rect(area.Left, area.Top, area.Right, area.Bottom);
+        var notch = NotchGeometry.Place(screen, Resting().ScaledBy(ScaleFor()));
+
+        return new NotchGeometry.Rect(notch.Left - area.Left, 0, notch.Right - area.Left, notch.Height);
+    }
+
     internal void SetOverlap(OverlapMode mode)
     {
         _overlap = mode;
@@ -91,9 +157,12 @@ internal sealed class NotchForm : Form
             _reservation.Reserve(
                 new NotchGeometry.Rect(area.Left, area.Top, area.Right, area.Bottom),
                 Scaled().Height);
+            RefreshContent(force: true);
+            _content.Start();
         }
         else
         {
+            _content.Stop();
             _reservation.Release();
         }
 
@@ -260,6 +329,8 @@ internal sealed class NotchForm : Form
             _reservation.Dispose();
             _animation.Dispose();
             _dwell.Dispose();
+            _content.Dispose();
+            _image?.Dispose();
         }
 
         base.Dispose(disposing);

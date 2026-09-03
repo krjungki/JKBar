@@ -21,4 +21,14 @@ public sealed record BandStyle(Color Colour, int OpacityPercent)
     }
 
     private static int Premultiply(byte channel, int alpha) => channel * alpha / 255;
+
+    /// <summary>
+    /// Text colour for this band. It can only read the chosen colour, not the wallpaper showing through a
+    /// translucent one, so the renderer also draws a contrasting shadow rather than trusting this alone.
+    /// </summary>
+    public Color TextColour => IsLight ? Color.FromArgb(24, 24, 27) : Color.FromArgb(242, 242, 247);
+
+    public Color ShadowColour => IsLight ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(110, 0, 0, 0);
+
+    private bool IsLight => ((0.2126 * Colour.R) + (0.7152 * Colour.G) + (0.0722 * Colour.B)) > 140;
 }
