@@ -1,0 +1,19 @@
+# Build and release artifacts
+build/
+dist/
+releases/
+bin/
+obj/
+TestResults/
+
+# IDE and user-local state
+.vs/
+*.user
+*.suo
+
+# Runtime state must remain outside the source tree
+logs/
+settings.local.json
+
+# Development notes stay local: they record this machine's hardware, folder names and design working state.
+docs/
