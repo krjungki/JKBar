@@ -11,8 +11,9 @@ internal static class PixelPetRenderer
     internal static void Paint(Graphics graphics, NotchMetrics metrics, IdleNotchContent pet, TimeSpan elapsed)
     {
         var pose = PixelPetAnimation.At(elapsed);
-        var sprite = PixelPetSprites.For(pet, pose);
-        if (sprite.Count == 0 || !PixelPetLayout.Fits(metrics.Width, metrics.Height))
+        var drawn = PetSpriteSheet.Frame(pet, pose);
+        var sprite = drawn is null ? PixelPetSprites.For(pet, pose) : [];
+        if ((drawn is null && sprite.Count == 0) || !PixelPetLayout.Fits(metrics.Width, metrics.Height))
         {
             return;
         }
@@ -31,6 +32,47 @@ internal static class PixelPetRenderer
             var wall = pose.Position < 0.5 ? 2 : metrics.Width - side - 2;
             left += (int)Math.Round((wall - left) * pose.Elevation);
         }
+        var state = graphics.Save();
+        try
+        {
+            using var silhouette = NotchRenderer.Silhouette(metrics.Width, metrics.Height, metrics.BottomCornerRadius);
+            graphics.SetClip(silhouette, CombineMode.Intersect);
+            graphics.SmoothingMode = SmoothingMode.None;
+            graphics.PixelOffsetMode = PixelOffsetMode.None;
+
+            if (drawn is not null)
+            {
+                // Nearest neighbour keeps the drawn pixels square instead of smearing them at fractional scale.
+                graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+                graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                graphics.DrawImage(drawn, new Rectangle(left, top, side, side), 0, 0, drawn.Width, drawn.Height, GraphicsUnit.Pixel);
+                graphics.PixelOffsetMode = PixelOffsetMode.None;
+            }
+            else
+            {
+                PaintDots(graphics, sprite, pet, pose, left, top, scale);
+            }
+
+            if (pose.Action == PixelPetAction.Speak)
+            {
+                DrawBubble(graphics, metrics, new Rectangle(left, top, side, side), PixelPetAnimation.Message(pet, pose.Message), pixel);
+            }
+        }
+        finally
+        {
+            graphics.Restore(state);
+        }
+    }
+
+    private static void PaintDots(
+        Graphics graphics,
+        IReadOnlyList<string> sprite,
+        IdleNotchContent pet,
+        PixelPetPose pose,
+        int left,
+        int top,
+        double scale)
+    {
         using var fur = new SolidBrush(pet switch
         {
             IdleNotchContent.Dog => Color.FromArgb(232, 168, 100),
@@ -53,59 +95,42 @@ internal static class PixelPetRenderer
         using var collar = new SolidBrush(Color.FromArgb(196, 40, 76));
         using var charm = new SolidBrush(Color.FromArgb(255, 184, 105));
         using var nose = new SolidBrush(Color.FromArgb(9, 12, 18));
-        var state = graphics.Save();
-        try
+
+        // Only mirrored, never turned: the face has to keep looking at the user while the pet moves sideways.
+        void Dot(int column, int row, Brush brush)
         {
-            using var silhouette = NotchRenderer.Silhouette(metrics.Width, metrics.Height, metrics.BottomCornerRadius);
-            graphics.SetClip(silhouette, CombineMode.Intersect);
-            graphics.SmoothingMode = SmoothingMode.None;
-            graphics.PixelOffsetMode = PixelOffsetMode.None;
+            var horizontal = pose.FacingLeft ? PixelPetSprites.Width - 1 - column : column;
+            var vertical = row;
 
-            // Only mirrored, never turned: the face has to keep looking at the user while the pet moves sideways.
-            void Dot(int column, int row, Brush brush)
-            {
-                var horizontal = pose.FacingLeft ? PixelPetSprites.Width - 1 - column : column;
-                var vertical = row;
-
-                // Edges are rounded rather than the size, so neighbouring dots still tile at a fractional scale.
-                var x = left + (int)Math.Round(horizontal * scale);
-                var y = top + (int)Math.Round(vertical * scale);
-                var edgeRight = left + (int)Math.Round((horizontal + 1) * scale);
-                var edgeBottom = top + (int)Math.Round((vertical + 1) * scale);
-                if (edgeRight > x && edgeBottom > y)
-                    graphics.FillRectangle(brush, x, y, edgeRight - x, edgeBottom - y);
-            }
-
-            for (var row = 0; row < sprite.Count; row++)
-            {
-                for (var column = 0; column < sprite[row].Length; column++)
-                {
-                    Brush? brush = sprite[row][column] switch
-                    {
-                        'f' => fur,
-                        'b' => patch,
-                        'p' => pink,
-                        'h' => highlight,
-                        'o' => outline,
-                        's' => shadow,
-                        'r' => collar,
-                        'c' => charm,
-                        'n' => nose,
-                        _ => null
-                    };
-                    if (brush is null) continue;
-                    Dot(column, row, brush);
-                }
-            }
-
-            if (pose.Action == PixelPetAction.Speak)
-            {
-                DrawBubble(graphics, metrics, new Rectangle(left, top, side, side), PixelPetAnimation.Message(pet, pose.Message), pixel);
-            }
+            // Edges are rounded rather than the size, so neighbouring dots still tile at a fractional scale.
+            var x = left + (int)Math.Round(horizontal * scale);
+            var y = top + (int)Math.Round(vertical * scale);
+            var edgeRight = left + (int)Math.Round((horizontal + 1) * scale);
+            var edgeBottom = top + (int)Math.Round((vertical + 1) * scale);
+            if (edgeRight > x && edgeBottom > y)
+                graphics.FillRectangle(brush, x, y, edgeRight - x, edgeBottom - y);
         }
-        finally
+
+        for (var row = 0; row < sprite.Count; row++)
         {
-            graphics.Restore(state);
+            for (var column = 0; column < sprite[row].Length; column++)
+            {
+                Brush? brush = sprite[row][column] switch
+                {
+                    'f' => fur,
+                    'b' => patch,
+                    'p' => pink,
+                    'h' => highlight,
+                    'o' => outline,
+                    's' => shadow,
+                    'r' => collar,
+                    'c' => charm,
+                    'n' => nose,
+                    _ => null
+                };
+                if (brush is null) continue;
+                Dot(column, row, brush);
+            }
         }
     }
 
