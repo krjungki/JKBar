@@ -2,6 +2,7 @@
 // It is separate from the bar because an appbar's window is tied to the reserved rect, and the bar has to be able
 // to grow past it when an alert opens.
 using System.Drawing.Imaging;
+using JKBar.App.Diagnostics;
 using JKBar.App.Interop;
 using JKBar.App.Rendering;
 using JKBar.Core.Layout;
@@ -193,6 +194,23 @@ internal sealed class AppBarReservation : Form
         Claimed?.Invoke();
     }
 
+    /// <summary>
+    /// A display change can hand back a band far wider than any surface GDI+ will allocate. Skipping the repaint
+    /// keeps the app alive until the next claim brings a sane rectangle.
+    /// </summary>
+    private Bitmap? TryCreateSurface()
+    {
+        try
+        {
+            return new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
+        }
+        catch (Exception error) when (error is ArgumentException or OutOfMemoryException)
+        {
+            CrashLog.Write($"띠 그림판 {_band.Width}x{_band.Height}", error);
+            return null;
+        }
+    }
+
     private void PaintBand()
     {
         if (_band.Width <= 0 || _band.Height <= 0)
@@ -203,8 +221,14 @@ internal sealed class AppBarReservation : Form
         // Kept between repaints: the readouts change every second and this is as wide as the screen.
         if (_surface is null || _surface.Width != _band.Width || _surface.Height != _band.Height)
         {
+            var replacement = TryCreateSurface();
+            if (replacement is null)
+            {
+                return;
+            }
+
             _surface?.Dispose();
-            _surface = new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
+            _surface = replacement;
         }
 
         bool cramped;
