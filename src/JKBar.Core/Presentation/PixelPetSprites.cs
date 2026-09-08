@@ -1,4 +1,4 @@
-// Original, cached pixel-art frames with separate seated and moving silhouettes.
+// Original pixel-art frames: the body is drawn side on and only the head turns towards the viewer.
 using JKBar.Core.Settings;
 
 namespace JKBar.Core.Presentation;
@@ -40,7 +40,8 @@ public static class PixelPetSprites
         var stretched = action == PixelPetAction.Stretch;
         var flying = action == PixelPetAction.Jump;
         var running = action == PixelPetAction.Run;
-        var bob = !seated && !crouched && step % 2 == 1 ? 1 : 0;
+        var coat = panda ? 'h' : 'f';
+        var bob = !seated && !crouched && !flying && step % 2 == 1 ? 1 : 0;
 
         void Fill(int left, int top, int width, int height, char colour)
         {
@@ -67,124 +68,136 @@ public static class PixelPetSprites
             Oval(left + 1, top + 1, width - 2, height - 2, colour);
         }
 
-        // Round eyes with a bright catchlight; a closed eye curves upward so a blink reads as a smile.
+        // Small dot eyes with one catchlight; anything larger merges into a single dark band across the face.
         void Eye(int left, int top)
         {
             if (blink)
             {
-                Fill(left + 1, top + 3, 3, 1, 'n');
-                Fill(left, top + 2, 1, 1, 'n');
-                Fill(left + 4, top + 2, 1, 1, 'n');
+                Fill(left, top + 2, 3, 1, 'n');
                 return;
             }
 
-            Oval(left, top, 5, 6, 'n');
-            Fill(left + 1, top + 1, 2, 2, 'h');
-            Fill(left + 3, top + 4, 1, 1, 'h');
+            Fill(left, top, 3, 4, 'n');
+            Fill(left, top, 1, 1, 'h');
         }
 
-        /// The face is always drawn front on, because a profile loses the eyes that make the pet readable.
+        void Paw(int left, int top, int height, char colour)
+        {
+            Shape(left, top, 5, height, colour);
+            Fill(left + 1, top + height - 3, 3, 2, 'h');
+        }
+
+        /// Turned towards the viewer on a body that stays side on, which is what keeps the pet readable in motion.
         void Head(int left, int top)
         {
-            const int width = 18;
-            if (cat)
+            const int width = 13;
+            if (dog)
+            {
+                Shape(left - 1, top - 7, 6, 10, 'f');
+                Shape(left + 8, top - 7, 6, 10, 'f');
+                Fill(left + 1, top - 5, 2, 6, 'p');
+                Fill(left + 10, top - 5, 2, 6, 'p');
+            }
+            else if (cat)
             {
                 for (var row = 0; row < 5; row++)
                 {
-                    Fill(left + 1, top - 4 + row, row + 2, 1, 'o');
-                    Fill(left + width - 3 - row, top - 4 + row, row + 2, 1, 'o');
+                    Fill(left + 1, top - 5 + row, row + 2, 1, 'o');
+                    Fill(left + width - 3 - row, top - 5 + row, row + 2, 1, 'o');
                 }
 
-                Fill(left + 2, top - 2, 2, 2, 'p');
-                Fill(left + width - 4, top - 2, 2, 2, 'p');
-            }
-            else if (panda)
-            {
-                Shape(left, top - 4, 7, 7, 'b');
-                Shape(left + width - 7, top - 4, 7, 7, 'b');
+                Fill(left + 2, top - 3, 2, 3, 'p');
+                Fill(left + width - 4, top - 3, 2, 3, 'p');
             }
             else
             {
-                Shape(left - 3, top + 2, 6, 13, 'b');
-                Shape(left + width - 3, top + 2, 6, 13, 'b');
+                Shape(left - 1, top - 5, 7, 7, 'b');
+                Shape(left + 7, top - 5, 7, 7, 'b');
             }
 
-            Shape(left, top, width, 16, panda ? 'h' : 'f');
+            Shape(left, top, width, 12, coat);
+
             if (dog)
             {
-                Oval(left + 1, top + 1, 7, 6, 'b');
-                Oval(left + 11, top + 2, 6, 4, 'b');
+                // The corgi's white blaze and muzzle, which is most of what makes the breed recognisable.
+                Fill(left + 5, top + 1, 3, 5, 'h');
+                Oval(left + 3, top + 6, 9, 6, 'h');
             }
-
-            if (cat)
+            else if (cat)
             {
-                Fill(left + 2, top + 1, 5, 2, 'b');
-                Fill(left + 3, top + 4, 3, 1, 'b');
-                Fill(left + 12, top + 1, 4, 2, 'b');
-            }
-
-            // The eye stays readable inside a dark marking only if a pale ring separates the two.
-            if (panda)
-            {
-                Oval(left + 1, top + 3, 8, 9, 'b');
-                Oval(left + 9, top + 3, 8, 9, 'b');
-                Oval(left + 2, top + 4, 6, 7, 'h');
-                Oval(left + 10, top + 4, 6, 7, 'h');
-            }
-
-            Oval(left + 4, top + 9, 10, 6, 'h');
-            Eye(left + 3, top + 5);
-            Eye(left + 10, top + 5);
-            Oval(left, top + 9, 4, 3, 'p');
-            Oval(left + width - 4, top + 9, 4, 3, 'p');
-
-            Oval(left + 7, top + 10, 4, 3, 'n');
-            if (action == PixelPetAction.Speak)
-            {
-                Oval(left + 7, top + 13, 4, 3, 'p');
+                Fill(left + 2, top + 1, 4, 2, 'b');
+                Fill(left + 8, top + 1, 3, 2, 'b');
+                Oval(left + 3, top + 6, 9, 6, 'h');
             }
             else
             {
-                Fill(left + 6, top + 13, 2, 1, 'n');
-                Fill(left + 10, top + 13, 2, 1, 'n');
+                Oval(left + 1, top + 2, 5, 6, 'b');
+                Oval(left + 7, top + 2, 5, 6, 'b');
+                Oval(left + 3, top + 6, 9, 6, 'h');
+            }
+
+            Eye(left + 2, top + 3);
+            Eye(left + 8, top + 3);
+            Oval(left + 5, top + 7, 4, 3, 'n');
+
+            if (dog || action == PixelPetAction.Speak)
+            {
+                Fill(left + 6, top + 10, 3, 2, 'p');
+            }
+            else
+            {
+                Fill(left + 4, top + 10, 2, 1, 'n');
+                Fill(left + 8, top + 10, 2, 1, 'n');
             }
         }
 
-        // Everything hangs off one upright pose: only the drop, the stride and the tail change between actions.
-        var drop = crouched ? 3 : stretched ? 1 : flying ? -1 : bob;
-        var headTop = 4 + drop;
-        var bodyTop = 19 + drop;
-        var bodyHeight = crouched ? 8 : 10;
-        var reach = running ? 4 : seated ? 0 : 2;
-        var stride = flying ? 3 : seated || crouched ? 0 : step switch { 0 => -reach, 1 => 0, 2 => reach, _ => 0 };
+        // The body is side on. Only the stride, the height off the ground and the tail change between actions.
+        var legHeight = seated ? 3 : dog ? 5 : crouched ? 4 : 6;
+        var bodyHeight = seated ? 13 : crouched ? 8 : 10;
+        var bodyWidth = seated ? 13 : 16;
+        var bodyLeft = seated ? 7 : 2;
+        var bodyBottom = 31 - legHeight + 3 + bob - (flying ? 3 : 0);
+        var bodyTop = bodyBottom - bodyHeight;
+        var legTop = bodyBottom - 2;
+        var reach = running ? 4 : flying ? 5 : 3;
+        var stride = seated || crouched ? 0 : step switch { 0 => -reach, 1 => 0, 2 => reach, _ => 0 };
 
         if (!panda)
         {
-            var wag = seated ? step % 2 : step % 2 + 1;
-            Shape(3, bodyTop - 3 - wag, 5, 10, 'b');
-            Fill(4, bodyTop - 2 - wag, 2, 4, 'h');
+            var wag = step % 2;
+            if (cat)
+            {
+                Shape(bodyLeft - 2, bodyTop - 8 + wag, 5, 13, 'b');
+            }
+            else
+            {
+                Shape(bodyLeft - 2, bodyTop + 1 - wag, 5, 6, 'f');
+            }
         }
 
-        Shape(9, bodyTop, 14, bodyHeight, panda ? 'b' : 'f');
-        Oval(12, bodyTop + 2, 8, bodyHeight - 2, 'h');
+        var frontLeg = bodyLeft + bodyWidth - 6;
+        var rearLeg = bodyLeft + 1;
+        Paw(rearLeg - stride, legTop, legHeight, 's');
+        Paw(frontLeg + stride, legTop - (stretched ? 3 : 0), legHeight, 's');
 
-        var footTop = flying ? bodyTop + 5 : bodyTop + 7;
-        Shape(8 - stride, footTop - (stretched ? 2 : 0), 7, 5, panda ? 'b' : 'h');
-        Shape(17 + stride, footTop, 7, 5, panda ? 'b' : 'h');
-
-        if (panda)
+        Shape(bodyLeft, bodyTop, bodyWidth, bodyHeight, panda ? 'b' : coat);
+        Oval(bodyLeft + 3, bodyTop + bodyHeight - 5, bodyWidth - 7, 4, 'h');
+        if (cat)
         {
-            Shape(6, bodyTop + 2, 5, 5, 'b');
-            Shape(21, bodyTop + 2, 5, 5, 'b');
+            Fill(bodyLeft + 4, bodyTop + 1, 2, 4, 'b');
+            Fill(bodyLeft + 8, bodyTop + 1, 2, 4, 'b');
         }
+
+        Paw(rearLeg + stride, legTop, legHeight, coat);
+        Paw(frontLeg - stride, legTop - (stretched ? 3 : 0), legHeight, coat);
 
         if (dog)
         {
-            Fill(10, bodyTop + 1, 12, 2, 'r');
-            Fill(15, bodyTop + 3, 2, 2, 'c');
+            Fill(frontLeg - 1, bodyTop + 1, 7, 3, 'r');
+            Fill(frontLeg + 1, bodyTop + 4, 3, 2, 'r');
         }
 
-        Head(7, headTop);
+        Head(bodyLeft + bodyWidth - (seated ? 8 : 5), bodyTop - (seated ? 10 : 9));
         return Array.AsReadOnly(pixels.Select(row => new string(row)).ToArray());
     }
 }

@@ -33,14 +33,14 @@ internal static class PixelPetRenderer
         }
         using var fur = new SolidBrush(pet switch
         {
-            IdleNotchContent.Dog => Color.FromArgb(230, 164, 117),
-            IdleNotchContent.Cat => Color.FromArgb(244, 202, 150),
+            IdleNotchContent.Dog => Color.FromArgb(232, 168, 100),
+            IdleNotchContent.Cat => Color.FromArgb(198, 140, 92),
             _ => Color.FromArgb(238, 235, 225)
         });
         using var patch = new SolidBrush(pet switch
         {
-            IdleNotchContent.Dog => Color.FromArgb(191, 91, 55),
-            IdleNotchContent.Cat => Color.FromArgb(194, 116, 61),
+            IdleNotchContent.Dog => Color.FromArgb(198, 120, 62),
+            IdleNotchContent.Cat => Color.FromArgb(124, 82, 52),
             // A panda's black has to stay lighter than the cutout or its ears and arms vanish into it.
             _ => Color.FromArgb(92, 101, 110)
         });
