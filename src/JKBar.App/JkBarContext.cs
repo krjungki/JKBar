@@ -1,6 +1,7 @@
 // Hosts the bar, the minimal tray menu, and the unified settings window.
 using System.Diagnostics;
 using System.Reflection;
+using JKBar.App.Diagnostics;
 using JKBar.App.Interop;
 using JKBar.App.Update;
 using JKBar.Core;
@@ -429,7 +430,8 @@ internal sealed class JkBarContext : ApplicationContext
     private static bool BandItemsMatch(BandItemsSettings first, BandItemsSettings second) =>
         first.Order.SequenceEqual(second.Order)
         && first.Hidden.SequenceEqual(second.Hidden)
-        && first.PercentStyles.SequenceEqual(second.PercentStyles);
+        && first.PercentStyles.SequenceEqual(second.PercentStyles)
+        && first.GraphColourArgb == second.GraphColourArgb;
 
     private static bool ProcessWatchMatches(ProcessWatchSettings first, ProcessWatchSettings second) =>
         first.Items.SequenceEqual(second.Items);
@@ -469,7 +471,8 @@ internal sealed class JkBarContext : ApplicationContext
             + $"실제 픽셀: {actual.Width} x {actual.Height}\r\n"
             + $"창 상단 y: {actual.Top}  (0이면 패널 끝에 붙음)\r\n"
             + $"화면 폭 대비: {share:P1}  (macOS 기준 {NotchMetrics.MacWidthShareOfScreen:P1})\r\n"
-            + $"설정 파일: {_settingsStore.Path}";
+            + $"설정 파일: {_settingsStore.Path}\r\n"
+            + $"오류 로그: {CrashLog.Path}";
     }
 
     private static void OpenUrl(Uri uri)

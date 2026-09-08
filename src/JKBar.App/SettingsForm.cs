@@ -1,4 +1,5 @@
 // Presents every user-facing JKBar setting in one window.
+using JKBar.App.Diagnostics;
 using JKBar.App.Interop;
 using JKBar.App.Stocks;
 using JKBar.Core;
@@ -359,11 +360,9 @@ internal sealed class SettingsForm : Form
 
         var tabs = new TabControl { Dock = DockStyle.Fill };
         tabs.TabPages.Add(Page("기본", BuildGeneralTab()));
-        tabs.TabPages.Add(Page("Bar 및 항목", BuildBandTab()));
-        tabs.TabPages.Add(Page("뉴스", BuildNewsTab()));
-        tabs.TabPages.Add(Page("프로세스 리스트", BuildProcessTab()));
-        tabs.TabPages.Add(Page("주식", BuildStockTab()));
-        tabs.TabPages.Add(Page("진단", BuildDiagnosticsTab()));
+        tabs.TabPages.Add(Page("Bar 설정", BuildBandTab()));
+        tabs.TabPages.Add(Page("컨텐츠 설정", BuildContentTab()));
+        tabs.TabPages.Add(Page("진단 설정", BuildDiagnosticsTab()));
 
         var save = new Button { Text = "확인", DialogResult = DialogResult.OK, AutoSize = true };
         var cancel = new Button { Text = "취소", DialogResult = DialogResult.Cancel, AutoSize = true };
@@ -398,15 +397,14 @@ internal sealed class SettingsForm : Form
     private Control BuildGeneralTab()
     {
         var layout = FormGrid();
-        AddRow(layout, "모니터", _monitor);
-        AddRow(layout, "겹침 방식", _overlap);
-        AddRow(layout, "평상시 노치", _idleNotch);
+        AddRow(layout, "표시 모니터", _monitor);
+        AddRow(layout, "Bar 표시 방식", _overlap);
+        AddRow(layout, "노치 표시", _idleNotch);
         AddRow(layout, string.Empty, _showNowPlaying);
-        AddRow(layout, "알림 글자 크기", SliderRow(_alertFontSize, _alertFontSizeValue));
-        AddRow(layout, "자동 시작", _startWithWindows);
-        AddRow(layout, "전체화면", _hideWhenFullscreen);
-        AddRow(layout, "지표 갱신(초)", _metricsRefresh);
-        AddRow(layout, "업데이트 확인", _updateCheck);
+        AddRow(layout, "확장 알림 글자 크기", SliderRow(_alertFontSize, _alertFontSizeValue));
+        AddRow(layout, "Windows 자동 시작", _startWithWindows);
+        AddRow(layout, "전체화면 자동 숨김", _hideWhenFullscreen);
+        AddRow(layout, "업데이트 자동 확인", _updateCheck);
         AddRow(layout, string.Empty, _updateOnStartup);
         AddFiller(layout);
         return layout;
@@ -425,6 +423,11 @@ internal sealed class SettingsForm : Form
         clearImage.Click += (_, _) => _imagePath.Clear();
         imageButtons.Controls.Add(chooseImage);
         imageButtons.Controls.Add(clearImage);
+        var imageRow = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        imageRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        imageRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        imageRow.Controls.Add(_imagePath, 0, 0);
+        imageRow.Controls.Add(imageButtons, 1, 0);
 
         var fontRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
         var chooseFont = new Button { Text = "글꼴 및 글자색...", AutoSize = true };
@@ -433,6 +436,8 @@ internal sealed class SettingsForm : Form
         fontRow.Controls.Add(_fontSummary);
         fontRow.Controls.Add(_textSwatch);
         fontRow.Controls.Add(chooseFont);
+        _textShadow.Margin = new Padding(12, 7, 3, 3);
+        fontRow.Controls.Add(_textShadow);
 
         var moveUp = new Button { Text = "↑", Width = 40, Height = 36 };
         var moveDown = new Button { Text = "↓", Width = 40, Height = 36 };
@@ -454,6 +459,7 @@ internal sealed class SettingsForm : Form
         var itemLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         itemLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         itemLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        itemLayout.MinimumSize = new Size(0, 96);
         itemLayout.Controls.Add(_items, 0, 0);
         itemLayout.Controls.Add(tools, 1, 0);
 
@@ -469,15 +475,14 @@ internal sealed class SettingsForm : Form
         graphColourRow.Controls.Add(_graphColour);
 
         var layout = FormGrid();
-        AddRow(layout, "Bar 색", colorRow);
+        AddRow(layout, "Bar 색깔", colorRow);
         AddRow(layout, "Bar 투명도", opacityRow);
-        AddRow(layout, "사용자 이미지", _imagePath);
-        AddRow(layout, string.Empty, imageButtons);
-        AddRow(layout, "이미지 크기", SliderRow(_imageScale, _imageScaleValue));
-        AddRow(layout, "글꼴", fontRow);
-        AddRow(layout, string.Empty, _textShadow);
-        AddRow(layout, "선택한 항목 표시 형식", _percentStyle);
-        AddRow(layout, "성능 그래프 색", graphColourRow);
+        AddRow(layout, "사용자 로고", imageRow);
+        AddRow(layout, "사용자 로고 크기", SliderRow(_imageScale, _imageScaleValue));
+        AddRow(layout, "Bar 폰트", fontRow);
+        AddRow(layout, "성능 카운터 갱신(초)", _metricsRefresh);
+        AddRow(layout, "성능 카운터 표시 방식", _percentStyle);
+        AddRow(layout, "성능 카운터 그래프 색", graphColourRow);
         AddRow(layout, "오른쪽 표시 항목", itemLayout, fill: true);
         return layout;
     }
@@ -488,13 +493,22 @@ internal sealed class SettingsForm : Form
 
     private void UpdateImageScaleSummary() => _imageScaleValue.Text = $"{_imageScale.Value * 5}%";
 
+    private Control BuildContentTab()
+    {
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+        tabs.TabPages.Add(Page("뉴스", BuildNewsTab()));
+        tabs.TabPages.Add(Page("주식 리스트", BuildStockTab()));
+        tabs.TabPages.Add(Page("실행 앱 리스트", BuildProcessTab()));
+        return tabs;
+    }
+
     private Control BuildNewsTab()
     {
         var layout = FormGrid();
         AddRow(layout, string.Empty, _newsEnabled);
-        AddRow(layout, "피드 주소", _feedUrl);
-        AddRow(layout, "피드 갱신(분)", _refreshMinutes);
-        AddRow(layout, "기사 전환(초)", _rotationSeconds);
+        AddRow(layout, "뉴스 RSS URL", _feedUrl);
+        AddRow(layout, "뉴스 갱신(분)", _refreshMinutes);
+        AddRow(layout, "뉴스 전환(초)", _rotationSeconds);
         AddFiller(layout);
         return layout;
     }
@@ -509,9 +523,9 @@ internal sealed class SettingsForm : Form
     /// </summary>
     private Control BuildProcessTab()
     {
-        _processes.Columns.Add("이름", 150);
-        _processes.Columns.Add("경로", 290);
-        _processes.Columns.Add("찾는 방식", 80);
+        _processes.Columns.Add("이름", 120);
+        _processes.Columns.Add("경로", 230);
+        _processes.Columns.Add("찾는 방식", 130);
         _processes.SelectedIndexChanged += (_, _) =>
         {
             if (_processes.SelectedItems.Count == 0)
@@ -550,7 +564,7 @@ internal sealed class SettingsForm : Form
         AddRow(layout, string.Empty, _processNameOnly);
         AddRow(layout, "실행 파일 경로", _processPath);
         AddRow(layout, string.Empty, buttons);
-        AddRow(layout, "감시 목록", _processes, fill: true);
+        AddRow(layout, "실행 앱 목록", _processes, fill: true);
         return layout;
     }
 
@@ -679,9 +693,9 @@ internal sealed class SettingsForm : Form
         AddRow(layout, "종목 이름", _stockQuery);
         AddRow(layout, "찾은 종목", _stockMatches);
         AddRow(layout, string.Empty, buttons);
-        AddRow(layout, "시세 갱신(초)", _stockRefresh);
-        AddRow(layout, "종목 전환(초)", _stockRotation);
-        AddRow(layout, "표시 목록", _stocks, fill: true);
+        AddRow(layout, "주가 갱신(초)", _stockRefresh);
+        AddRow(layout, "주가 전환(초)", _stockRotation);
+        AddRow(layout, "주식 리스트", _stocks, fill: true);
         return layout;
     }
 
@@ -802,28 +816,67 @@ internal sealed class SettingsForm : Form
         {
             Multiline = true,
             ReadOnly = true,
-            Dock = DockStyle.Top,
-            Height = 110,
+            ScrollBars = ScrollBars.Vertical,
+            Height = 150,
             Text = _measurements()
-        };
-        var buttons = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            Dock = DockStyle.Top
         };
         var preview = new Button { Text = "알림 펼침 미리보기", AutoSize = true };
         var refresh = new Button { Text = "크기 다시 읽기", AutoSize = true };
         preview.Click += (_, _) => _previewAlert();
         refresh.Click += (_, _) => measurements.Text = _measurements();
-        buttons.Controls.Add(preview);
-        buttons.Controls.Add(refresh);
+        var diagnosticButtons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        diagnosticButtons.Controls.Add(preview);
+        diagnosticButtons.Controls.Add(refresh);
 
-        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16) };
-        panel.Controls.Add(buttons);
-        panel.Controls.Add(measurements);
-        buttons.Top = measurements.Bottom + 12;
-        return panel;
+        var logPath = new TextBox { ReadOnly = true, Dock = DockStyle.Fill, Text = CrashLog.Path };
+        var logStatus = new Label { AutoSize = true, Anchor = AnchorStyles.Left };
+        var openLogFolder = new Button { Text = "로그 폴더 열기", AutoSize = true };
+        var clearLog = new Button { Text = "로그 비우기", AutoSize = true };
+        void UpdateLogStatus() => logStatus.Text = File.Exists(CrashLog.Path)
+            ? $"{new FileInfo(CrashLog.Path).Length:N0} bytes"
+            : "기록 없음";
+        openLogFolder.Click += (_, _) => OpenLogFolder();
+        clearLog.Click += (_, _) =>
+        {
+            if (!CrashLog.Clear())
+            {
+                MessageBox.Show(this, "오류 로그를 비우지 못했습니다.", "JKBar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            UpdateLogStatus();
+        };
+        var logButtons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        logButtons.Controls.Add(openLogFolder);
+        logButtons.Controls.Add(clearLog);
+        logStatus.Margin = new Padding(12, 8, 3, 3);
+        logButtons.Controls.Add(logStatus);
+        UpdateLogStatus();
+
+        var layout = FormGrid();
+        AddRow(layout, "화면 및 저장 위치", measurements);
+        AddRow(layout, string.Empty, diagnosticButtons);
+        AddRow(layout, "오류 로그", logPath);
+        AddRow(layout, "로그 설정", logButtons);
+        AddFiller(layout);
+        return layout;
+    }
+
+    private void OpenLogFolder()
+    {
+        var folder = System.IO.Path.GetDirectoryName(CrashLog.Path);
+        if (folder is null)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+        }
+        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageBox.Show(this, $"로그 폴더를 열지 못했습니다.\n\n{error.Message}", "JKBar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void ChooseBandColour()

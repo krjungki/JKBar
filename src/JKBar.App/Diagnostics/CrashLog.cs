@@ -67,4 +67,21 @@ internal static class CrashLog
         {
         }
     }
+
+    public static bool Clear()
+    {
+        try
+        {
+            lock (Gate)
+            {
+                if (File.Exists(Path))
+                    File.Delete(Path);
+            }
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 }
