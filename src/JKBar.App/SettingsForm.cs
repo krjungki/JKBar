@@ -358,10 +358,10 @@ internal sealed class SettingsForm : Form
         header.Controls.Add(title);
         header.Controls.Add(version);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var tabs = Tabs(Color.FromArgb(38, 92, 168), Color.FromArgb(233, 236, 242));
         tabs.TabPages.Add(Page("기본", BuildGeneralTab()));
         tabs.TabPages.Add(Page("Bar 설정", BuildBandTab()));
-        tabs.TabPages.Add(Page("컨텐츠 설정", BuildContentTab()));
+        tabs.TabPages.Add(Page("컨텐츠 설정", BuildContentTab(), Color.FromArgb(238, 241, 247)));
         tabs.TabPages.Add(Page("진단 설정", BuildDiagnosticsTab()));
 
         var save = new Button { Text = "확인", DialogResult = DialogResult.OK, AutoSize = true };
@@ -495,11 +495,16 @@ internal sealed class SettingsForm : Form
 
     private Control BuildContentTab()
     {
-        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var tabs = Tabs(Color.FromArgb(23, 132, 130), Color.FromArgb(222, 228, 236));
+        tabs.Margin = new Padding(10);
         tabs.TabPages.Add(Page("뉴스", BuildNewsTab()));
         tabs.TabPages.Add(Page("주식 리스트", BuildStockTab()));
         tabs.TabPages.Add(Page("실행 앱 리스트", BuildProcessTab()));
-        return tabs;
+
+        // An inset panel puts a visible edge between the two tab strips.
+        var frame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = Color.FromArgb(238, 241, 247) };
+        frame.Controls.Add(tabs);
+        return frame;
     }
 
     private Control BuildNewsTab()
@@ -1143,11 +1148,55 @@ internal sealed class SettingsForm : Form
         layout.SetColumnSpan(filler, 2);
     }
 
-    private static TabPage Page(string title, Control content)
+    private static TabPage Page(string title, Control content) => Page(title, content, Color.White);
+
+    private static TabPage Page(string title, Control content, Color background)
     {
-        var page = new TabPage(title) { Padding = new Padding(0) };
+        var page = new TabPage(title)
+        {
+            Padding = new Padding(0),
+            BackColor = background,
+            UseVisualStyleBackColor = false
+        };
         page.Controls.Add(content);
         return page;
+    }
+
+    /// <summary>
+    /// The stock tab strip draws every tab the same, so a nested one looked like a second row of the first.
+    /// Painting the selected tab in the accent colour is what tells the two levels apart.
+    /// </summary>
+    private static TabControl Tabs(Color accent, Color idle)
+    {
+        var tabs = new TabControl
+        {
+            Dock = DockStyle.Fill,
+            DrawMode = TabDrawMode.OwnerDrawFixed,
+            Padding = new Point(16, 5)
+        };
+
+        tabs.DrawItem += (sender, e) =>
+        {
+            var owner = (TabControl)sender!;
+            var selected = owner.SelectedIndex == e.Index;
+            var bounds = e.Bounds with { Y = e.Bounds.Y - 1, Height = e.Bounds.Height + 2 };
+
+            using var background = new SolidBrush(selected ? accent : idle);
+            e.Graphics.FillRectangle(background, bounds);
+            using var edge = new Pen(Color.FromArgb(198, 202, 210));
+            e.Graphics.DrawRectangle(edge, bounds);
+
+            using var font = new Font(owner.Font, selected ? FontStyle.Bold : FontStyle.Regular);
+            TextRenderer.DrawText(
+                e.Graphics,
+                owner.TabPages[e.Index].Text,
+                font,
+                bounds,
+                selected ? Color.White : Color.FromArgb(72, 76, 84),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+
+        return tabs;
     }
 
     protected override void Dispose(bool disposing)

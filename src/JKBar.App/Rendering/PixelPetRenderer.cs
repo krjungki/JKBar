@@ -21,7 +21,6 @@ internal static class PixelPetRenderer
         var pixel = Math.Max(1, (int)Math.Round(scale));
         var side = (int)Math.Round(PixelPetSprites.Height * scale);
         var climbing = pose.Action == PixelPetAction.Climb;
-        var upright = climbing && pose.Elevation > 0.15;
         var padding = Math.Min(Math.Max(4, metrics.BottomCornerRadius + 2), Math.Max(2, (metrics.Width - side) / 2));
         var travel = Math.Max(0, metrics.Width - padding * 2 - side);
         var left = padding + (int)Math.Round(travel * pose.Position);
@@ -42,11 +41,14 @@ internal static class PixelPetRenderer
         {
             IdleNotchContent.Dog => Color.FromArgb(191, 91, 55),
             IdleNotchContent.Cat => Color.FromArgb(194, 116, 61),
-            _ => Color.FromArgb(60, 68, 72)
+            // A panda's black has to stay lighter than the cutout or its ears and arms vanish into it.
+            _ => Color.FromArgb(92, 101, 110)
         });
         using var pink = new SolidBrush(Color.FromArgb(244, 147, 164));
         using var highlight = new SolidBrush(Color.FromArgb(255, 252, 244));
-        using var outline = new SolidBrush(Color.FromArgb(39, 32, 43));
+        using var outline = new SolidBrush(pet == IdleNotchContent.Panda
+            ? Color.FromArgb(74, 82, 92)
+            : Color.FromArgb(39, 32, 43));
         using var shadow = new SolidBrush(Color.FromArgb(183, 156, 183));
         using var collar = new SolidBrush(Color.FromArgb(196, 40, 76));
         using var charm = new SolidBrush(Color.FromArgb(255, 184, 105));
@@ -59,16 +61,11 @@ internal static class PixelPetRenderer
             graphics.SmoothingMode = SmoothingMode.None;
             graphics.PixelOffsetMode = PixelOffsetMode.None;
 
+            // Only mirrored, never turned: the face has to keep looking at the user while the pet moves sideways.
             void Dot(int column, int row, Brush brush)
             {
                 var horizontal = pose.FacingLeft ? PixelPetSprites.Width - 1 - column : column;
                 var vertical = row;
-                if (upright)
-                {
-                    (horizontal, vertical) = pose.FacingLeft
-                        ? (PixelPetSprites.Height - 1 - vertical, horizontal)
-                        : (vertical, PixelPetSprites.Height - 1 - horizontal);
-                }
 
                 // Edges are rounded rather than the size, so neighbouring dots still tile at a fractional scale.
                 var x = left + (int)Math.Round(horizontal * scale);
