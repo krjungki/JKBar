@@ -3,7 +3,7 @@
 macOS 노치를 흉내 낸 Windows 상단 표시 바. 화면 위쪽에 노치 모양 창을 띄우고 그 안에 아이콘, 숫자, 텍스트를
 개별 항목으로 구성해 상시 표시하거나 알림으로 띄운다.
 
-Status: RELEASED. 0.5.0.
+Status: RELEASED. 0.5.1.
 
 ## Install
 

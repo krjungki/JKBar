@@ -32,6 +32,15 @@ internal static class BandRenderer
     private const float BadgeOverhangShareOfBadge = 0.4f;
     private const int LeftGroupGap = 2;
 
+    /// <summary>
+    /// The widest reading a quote box has to hold. Korean names are wider per character than digits, so the
+    /// yardstick is written in them.
+    /// </summary>
+    private const string QuoteYardstick = "종목이름다섯 0,000,000 ▼00.00%";
+
+    /// <summary>How much of the left slot the headline box takes. The rest is the logo and the active application.</summary>
+    private const float NewsShareOfSlot = 0.55f;
+
     /// <summary>The graph is about as wide as the band is tall, which reads as a chart without crowding the rest.</summary>
     private const float GraphShareOfHeight = 0.95f;
 
@@ -94,9 +103,10 @@ internal static class BandRenderer
             ? new SolidBrush(ShadowColourFor(foregroundColour))
             : null;
         var ink = new Ink(foreground, shadow, foregroundColour);
-        var appRight = DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, imageRight);
-        var quoteRight = DrawQuote(g, slots.Left, quote, valueFont, ink, padding, appRight);
-        var newsBounds = DrawNews(g, slots.Left, news, valueFont, ink, padding, quoteRight);
+        var (newsBox, quoteBox) = LeftBoxes(g, slots.Left, valueFont, padding);
+        DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, imageRight, newsBox.Left);
+        DrawQuote(g, quoteBox, quote, valueFont, ink);
+        var newsBounds = DrawNews(g, newsBox, news, valueFont, ink);
         var itemsLeft = DrawItems(
             g,
             slots.Right,
@@ -155,79 +165,96 @@ internal static class BandRenderer
         return slot.Left + width;
     }
 
-    /// <summary>Names what the user is working in, between the logo and the news.</summary>
-    private static int DrawActiveApp(
+    /// <param name="limit">Where the headline's box starts; the name is trimmed before it reaches that.</param>
+    private static void DrawActiveApp(
         Graphics g,
         NotchGeometry.Rect slot,
         string? name,
         Font font,
         Ink ink,
         int padding,
-        int imageRight)
+        int imageRight,
+        int limit)
     {
         if (string.IsNullOrWhiteSpace(name) || slot.Width <= 0)
         {
-            return imageRight;
+            return;
         }
 
         var left = LeftContentStart(slot, imageRight, padding);
-        // Half the slot at most: the news is the part that earns the remaining room.
-        var available = Math.Min(slot.Right - left, slot.Width / 2);
+        var available = limit - (padding * LeftGroupGap) - left;
         if (available <= 0)
         {
-            return imageRight;
+            return;
         }
 
         using var format = LeftTextFormat();
         var measured = (int)Math.Ceiling(g.MeasureString(name, font, available, format).Width) + 2;
-        var width = Math.Min(available, measured);
-        Write(g, name, font, format, ink, new RectangleF(left, slot.Top, width, slot.Height));
-
-        return left + width;
+        Write(g, name, font, format, ink, new RectangleF(left, slot.Top, Math.Min(available, measured), slot.Height));
     }
 
     /// <summary>
-    /// One registered symbol, between the active application and the headline. The move is coloured on its own so
-    /// a rise or a fall can be read without the numbers.
+    /// The headline and the quote get boxes measured leftwards from the bar, so neither shifts when its own text
+    /// changes length. The quote's box is as wide as the longest reading it can hold; the headline's follows the
+    /// screen, because that is what decides how much of a title fits.
     /// </summary>
-    /// <returns>Where it ends, so the headline can centre in what is left.</returns>
-    private static int DrawQuote(
+    private static (Rectangle News, Rectangle Quote) LeftBoxes(
         Graphics g,
         NotchGeometry.Rect slot,
-        StockQuote? quote,
         Font font,
-        Ink ink,
-        int padding,
-        int contentRight)
+        int padding)
     {
-        if (quote is null || slot.Width <= 0)
+        if (slot.Width <= 0)
         {
-            return contentRight;
+            return (Rectangle.Empty, Rectangle.Empty);
         }
 
-        var left = LeftContentStart(slot, contentRight, padding);
-        // A third of the slot at most: the headline is what earns the rest of the room.
-        var available = Math.Min(slot.Right - left, slot.Width / 3);
-        if (available <= 0)
+        using var format = LeftTextFormat();
+        var gap = padding * LeftGroupGap;
+        var quoteWidth = Math.Min(slot.Width, Measure(g, QuoteYardstick, font, format) + 2);
+        var newsWidth = Math.Clamp(
+            (int)Math.Round(slot.Width * NewsShareOfSlot),
+            0,
+            Math.Max(0, slot.Width - quoteWidth - gap - padding));
+
+        // A gap off the bar as well, so the quote does not look stuck to the cutout.
+        var quoteLeft = slot.Right - padding - quoteWidth;
+
+        return (
+            new Rectangle(quoteLeft - gap - newsWidth, slot.Top, newsWidth, slot.Height),
+            new Rectangle(quoteLeft, slot.Top, quoteWidth, slot.Height));
+    }
+
+    /// <summary>
+    /// One registered symbol, centred in its own fixed box. The move is coloured on its own so a rise or a fall
+    /// can be read without the numbers.
+    /// </summary>
+    private static void DrawQuote(Graphics g, Rectangle box, StockQuote? quote, Font font, Ink ink)
+    {
+        if (quote is null || box.Width <= 0)
         {
-            return contentRight;
+            return;
         }
 
         using var format = LeftTextFormat();
         var change = quote.ChangePercent.Trim();
-        var head = change.Length == 0
-            ? $"{quote.Name} {quote.Price}"
-            : $"{quote.Name} {quote.Price} ";
-        var headWidth = Math.Min(available, Measure(g, head, font, format) + 2);
-        Write(g, head, font, format, ink, new RectangleF(left, slot.Top, headWidth, slot.Height));
+        var head = $"{quote.Name} {quote.Price}";
+        // The separator leads the move rather than trailing the head, because a trailing space is measured but
+        // not drawn, which shifted the centred group by a dozen pixels as the reading changed.
+        var move = change.Length == 0 ? string.Empty : $" {StockPresentation.Marker(quote.Direction)}{change}%";
 
-        if (change.Length == 0)
+        var headWidth = Math.Min(box.Width, Measure(g, head, font, format) + 2);
+        var moveWidth = move.Length == 0
+            ? 0
+            : Math.Min(box.Width - headWidth, Measure(g, move, font, format) + 2);
+        var left = box.Left + Math.Max(0, (box.Width - headWidth - moveWidth) / 2);
+
+        Write(g, head, font, format, ink, new RectangleF(left, box.Top, headWidth, box.Height));
+        if (moveWidth <= 0)
         {
-            return left + headWidth;
+            return;
         }
 
-        var move = $"{StockPresentation.Marker(quote.Direction)}{change}%";
-        var moveWidth = Math.Min(Math.Max(0, available - headWidth), Measure(g, move, font, format) + 2);
         using var brush = new SolidBrush(quote.Direction switch
         {
             StockDirection.Rising => StockRising,
@@ -240,29 +267,13 @@ internal static class BandRenderer
             font,
             format,
             ink with { Foreground = brush },
-            new RectangleF(left + headWidth, slot.Top, moveWidth, slot.Height));
-
-        return left + headWidth + moveWidth;
+            new RectangleF(left + headWidth, box.Top, moveWidth, box.Height));
     }
 
-    /// <param name="contentRight">Where the app name ends; the headline never crosses back over it.</param>
-    private static Rectangle DrawNews(
-        Graphics g,
-        NotchGeometry.Rect slot,
-        NewsItem? news,
-        Font font,
-        Ink ink,
-        int padding,
-        int contentRight)
+    /// <returns>Where the text itself landed, so a click beside a short headline does not open it.</returns>
+    private static Rectangle DrawNews(Graphics g, Rectangle box, NewsItem? news, Font font, Ink ink)
     {
-        if (news is null || slot.Width <= 0)
-        {
-            return Rectangle.Empty;
-        }
-
-        var limit = LeftContentStart(slot, contentRight, padding);
-        var available = slot.Right - limit;
-        if (available <= 0)
+        if (news is null || box.Width <= 0)
         {
             return Rectangle.Empty;
         }
@@ -270,13 +281,10 @@ internal static class BandRenderer
         var text = NewsPresentation.Headline(news, TimeZoneInfo.Local, CultureInfo.CurrentCulture);
         using var format = LeftTextFormat();
 
-        var measured = (int)Math.Ceiling(g.MeasureString(text, font, available, format).Width) + 2;
-        var width = Math.Min(available, measured);
-        // Centred in the space the app name leaves, so a longer or shorter headline grows from the middle.
-        var bounds = new Rectangle(limit + ((available - width) / 2), slot.Top, width, slot.Height);
-
-        var area = new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
-        Write(g, text, font, format, ink, area);
+        var measured = (int)Math.Ceiling(g.MeasureString(text, font, box.Width, format).Width) + 2;
+        var width = Math.Min(box.Width, measured);
+        var bounds = new Rectangle(box.Left + ((box.Width - width) / 2), box.Top, width, box.Height);
+        Write(g, text, font, format, ink, new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
 
         return bounds;
     }
