@@ -41,11 +41,23 @@ public enum IdleNotchContent
     Hamster
 }
 
+/// <summary>Scenery drawn behind a pixel pet. Each picture is cut so its horizon sits on the notch's middle.</summary>
+public enum NotchScene
+{
+    None,
+    SummerField,
+    SunsetSky,
+    CloudHill
+}
+
 public sealed record NotchSettings
 {
     public const int DefaultAlertFontSizePercent = 25;
 
     public IdleNotchContent IdleContent { get; init; } = IdleNotchContent.Empty;
+
+    /// <summary>Only drawn while a pet is on show; anything else needs the notch's plain fill behind it.</summary>
+    public NotchScene Scene { get; init; } = NotchScene.None;
 
     /// <summary>Keeps the playing track in the notch until playback stops, ahead of the resting content.</summary>
     public bool ShowNowPlaying { get; init; } = true;
@@ -56,6 +68,7 @@ public sealed record NotchSettings
     public NotchSettings Normalized() => this with
     {
         IdleContent = Enum.IsDefined(IdleContent) ? IdleContent : IdleNotchContent.Empty,
+        Scene = Enum.IsDefined(Scene) ? Scene : NotchScene.None,
         AlertFontSizePercent = Math.Clamp(AlertFontSizePercent, 10, 45)
     };
 }

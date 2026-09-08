@@ -988,6 +988,7 @@ internal sealed class NotchForm : Form
                 NotchMark());
             if (animatePet)
             {
+                NotchSceneRenderer.Paint(graphics, scaled, _notchSettings.Scene);
                 PixelPetRenderer.Paint(graphics, scaled, _notchSettings.IdleContent, _petClock.Elapsed);
             }
         }

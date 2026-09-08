@@ -206,6 +206,13 @@ public class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void RejectsUnknownNotchScene()
+    {
+        Assert.Equal(NotchScene.None, new NotchSettings { Scene = (NotchScene)99 }.Normalized().Scene);
+        Assert.Equal(NotchScene.SunsetSky, new NotchSettings { Scene = NotchScene.SunsetSky }.Normalized().Scene);
+    }
+
+    [Fact]
     public void KeepsTheAlertTextSizeWithinReadableBounds()
     {
         Assert.Equal(45, new NotchSettings { AlertFontSizePercent = 400 }.Normalized().AlertFontSizePercent);

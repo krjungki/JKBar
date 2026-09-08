@@ -45,6 +45,10 @@
     <EmbeddedResource Include="Assets\pet-panda.png" LogicalName="JKBar.App.Assets.pet-panda.png" />
     <EmbeddedResource Include="Assets\pet-duck.png" LogicalName="JKBar.App.Assets.pet-duck.png" />
     <EmbeddedResource Include="Assets\pet-hamster.png" LogicalName="JKBar.App.Assets.pet-hamster.png" />
+    <!-- Scenery for the notch, already cut so each picture's horizon is on its middle row. -->
+    <EmbeddedResource Include="Assets\scene-summer-field.png" LogicalName="JKBar.App.Assets.scene-summer-field.png" />
+    <EmbeddedResource Include="Assets\scene-sunset-sky.png" LogicalName="JKBar.App.Assets.scene-sunset-sky.png" />
+    <EmbeddedResource Include="Assets\scene-cloud-hill.png" LogicalName="JKBar.App.Assets.scene-cloud-hill.png" />
   </ItemGroup>
 
   <ItemGroup>

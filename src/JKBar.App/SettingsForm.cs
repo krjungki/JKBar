@@ -29,6 +29,7 @@ internal sealed class SettingsForm : Form
 
     private readonly ComboBox _overlap = DropDown();
     private readonly ComboBox _idleNotch = DropDown();
+    private readonly ComboBox _notchScene = DropDown();
     private readonly ComboBox _monitor = DropDown();
     private readonly ComboBox _updateCheck = DropDown();
     private readonly CheckBox _updateOnStartup = new() { Text = "시작할 때도 한 번 확인", AutoSize = true };
@@ -168,6 +169,13 @@ internal sealed class SettingsForm : Form
         AddOption(_idleNotch, "픽셀 동물 - 햄스터", IdleNotchContent.Hamster);
         SelectOption(_idleNotch, normalized.Notch.IdleContent);
 
+        AddOption(_notchScene, "없음", NotchScene.None);
+        AddOption(_notchScene, "여름 들판", NotchScene.SummerField);
+        AddOption(_notchScene, "노을 하늘", NotchScene.SunsetSky);
+        AddOption(_notchScene, "구름 언덕", NotchScene.CloudHill);
+        SelectOption(_notchScene, normalized.Notch.Scene);
+        UpdateSceneAvailability();
+
         LoadMonitors(normalized.Appearance.MonitorDeviceName);
 
         AddOption(_updateCheck, "확인하지 않음", UpdateCheckFrequency.Never);
@@ -257,7 +265,12 @@ internal sealed class SettingsForm : Form
         FormClosing += ValidateBeforeClose;
 
         _overlap.SelectedIndexChanged += (_, _) => RaisePreview();
-        _idleNotch.SelectedIndexChanged += (_, _) => RaisePreview();
+        _idleNotch.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateSceneAvailability();
+            RaisePreview();
+        };
+        _notchScene.SelectedIndexChanged += (_, _) => RaisePreview();
         _monitor.SelectedIndexChanged += (_, _) => RaisePreview();
         _updateCheck.SelectedIndexChanged += (_, _) => RaisePreview();
         _updateOnStartup.CheckedChanged += (_, _) => RaisePreview();
@@ -307,6 +320,7 @@ internal sealed class SettingsForm : Form
         Notch = new NotchSettings
         {
             IdleContent = SelectedValue(_idleNotch, IdleNotchContent.Empty),
+            Scene = SelectedValue(_notchScene, NotchScene.None),
             AlertFontSizePercent = _alertFontSize.Value * 5,
             ShowNowPlaying = _showNowPlaying.Checked
         },
@@ -402,6 +416,7 @@ internal sealed class SettingsForm : Form
         AddRow(layout, "표시 모니터", _monitor);
         AddRow(layout, "Bar 표시 방식", _overlap);
         AddRow(layout, "노치 표시", _idleNotch);
+        AddRow(layout, "노치 배경", _notchScene);
         AddRow(layout, string.Empty, _showNowPlaying);
         AddRow(layout, "확장 알림 글자 크기", SliderRow(_alertFontSize, _alertFontSizeValue));
         AddRow(layout, "Windows 자동 시작", _startWithWindows);
@@ -1238,6 +1253,10 @@ internal sealed class SettingsForm : Form
         // Narrower than this and the same row is cut off again, so the window is not allowed to go there.
         MinimumSize = new Size(Math.Max(MinimumSize.Width, Size.Width), MinimumSize.Height);
     }
+
+    // Scenery is only ever drawn behind a pet, so the choice is greyed out when the notch shows anything else.
+    private void UpdateSceneAvailability() =>
+        _notchScene.Enabled = PixelPetAnimation.IsPet(SelectedValue(_idleNotch, IdleNotchContent.Empty));
 
     private static IEnumerable<Control> Descendants(Control parent)
     {
