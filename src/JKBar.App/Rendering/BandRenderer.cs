@@ -266,7 +266,8 @@ internal static class BandRenderer
 
     /// <summary>
     /// One registered symbol, centred in its own fixed box. The move is coloured on its own so a rise or a fall
-    /// can be read without the numbers.
+    /// can be read without the numbers. The price and the move keep their room and a long name is cut short,
+    /// because a fund with a twenty-letter name would otherwise push the reading out of the box.
     /// </summary>
     private static void DrawQuote(Graphics g, Rectangle box, StockQuote? quote, Font font, Ink ink)
     {
@@ -277,18 +278,20 @@ internal static class BandRenderer
 
         using var format = LeftTextFormat();
         var change = quote.ChangePercent.Trim();
-        var head = $"{quote.Name} {quote.Price}";
-        // The separator leads the move rather than trailing the head, because a trailing space is measured but
-        // not drawn, which shifted the centred group by a dozen pixels as the reading changed.
+        // The separators lead rather than trail, because a trailing space is measured but not drawn, which
+        // shifted the centred group by a dozen pixels as the reading changed.
+        var price = $" {quote.Price}";
         var move = change.Length == 0 ? string.Empty : $" {StockPresentation.Marker(quote.Direction)}{change}%";
 
-        var headWidth = Math.Min(box.Width, Measure(g, head, font, format) + 2);
-        var moveWidth = move.Length == 0
-            ? 0
-            : Math.Min(box.Width - headWidth, Measure(g, move, font, format) + 2);
-        var left = box.Left + Math.Max(0, (box.Width - headWidth - moveWidth) / 2);
+        var moveWidth = move.Length == 0 ? 0 : Math.Min(box.Width, Measure(g, move, font, format) + 2);
+        var priceWidth = Math.Min(box.Width - moveWidth, Measure(g, price, font, format) + 2);
+        var nameWidth = Math.Min(
+            Measure(g, quote.Name, font, format) + 2,
+            Math.Max(0, box.Width - priceWidth - moveWidth));
+        var left = box.Left + Math.Max(0, (box.Width - nameWidth - priceWidth - moveWidth) / 2);
 
-        Write(g, head, font, format, ink, new RectangleF(left, box.Top, headWidth, box.Height));
+        Write(g, quote.Name, font, format, ink, new RectangleF(left, box.Top, nameWidth, box.Height));
+        Write(g, price, font, format, ink, new RectangleF(left + nameWidth, box.Top, priceWidth, box.Height));
         if (moveWidth <= 0)
         {
             return;
@@ -306,7 +309,7 @@ internal static class BandRenderer
             font,
             format,
             ink with { Foreground = brush },
-            new RectangleF(left + headWidth, box.Top, moveWidth, box.Height));
+            new RectangleF(left + nameWidth + priceWidth, box.Top, moveWidth, box.Height));
     }
 
     /// <returns>Where the text itself landed, so a click beside a short headline does not open it.</returns>
