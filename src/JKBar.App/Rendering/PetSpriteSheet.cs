@@ -55,7 +55,9 @@ internal static class PetSpriteSheet
                  {
                      (IdleNotchContent.Dog, "JKBar.App.Assets.pet-dog.png"),
                      (IdleNotchContent.Cat, "JKBar.App.Assets.pet-cat.png"),
-                     (IdleNotchContent.Panda, "JKBar.App.Assets.pet-panda.png")
+                     (IdleNotchContent.Panda, "JKBar.App.Assets.pet-panda.png"),
+                     (IdleNotchContent.Duck, "JKBar.App.Assets.pet-duck.png"),
+                     (IdleNotchContent.Hamster, "JKBar.App.Assets.pet-hamster.png")
                  })
         {
             var frames = Slice(resource);

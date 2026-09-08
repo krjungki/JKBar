@@ -36,7 +36,9 @@ public enum IdleNotchContent
     DateTime,
     Dog,
     Cat,
-    Panda
+    Panda,
+    Duck,
+    Hamster
 }
 
 public sealed record NotchSettings

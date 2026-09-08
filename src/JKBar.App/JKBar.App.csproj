@@ -43,6 +43,8 @@
     <EmbeddedResource Include="Assets\pet-dog.png" LogicalName="JKBar.App.Assets.pet-dog.png" />
     <EmbeddedResource Include="Assets\pet-cat.png" LogicalName="JKBar.App.Assets.pet-cat.png" />
     <EmbeddedResource Include="Assets\pet-panda.png" LogicalName="JKBar.App.Assets.pet-panda.png" />
+    <EmbeddedResource Include="Assets\pet-duck.png" LogicalName="JKBar.App.Assets.pet-duck.png" />
+    <EmbeddedResource Include="Assets\pet-hamster.png" LogicalName="JKBar.App.Assets.pet-hamster.png" />
   </ItemGroup>
 
   <ItemGroup>

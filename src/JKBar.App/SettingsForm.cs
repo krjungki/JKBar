@@ -164,6 +164,8 @@ internal sealed class SettingsForm : Form
         AddOption(_idleNotch, "픽셀 동물 - 개", IdleNotchContent.Dog);
         AddOption(_idleNotch, "픽셀 동물 - 고양이", IdleNotchContent.Cat);
         AddOption(_idleNotch, "픽셀 동물 - 팬더", IdleNotchContent.Panda);
+        AddOption(_idleNotch, "픽셀 동물 - 오리", IdleNotchContent.Duck);
+        AddOption(_idleNotch, "픽셀 동물 - 햄스터", IdleNotchContent.Hamster);
         SelectOption(_idleNotch, normalized.Notch.IdleContent);
 
         LoadMonitors(normalized.Appearance.MonitorDeviceName);

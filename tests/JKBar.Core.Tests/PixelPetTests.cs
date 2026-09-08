@@ -67,6 +67,16 @@ public class PixelPetTests
     }
 
     [Fact]
+    public void EveryPetSpeaksAndNothingElseDoes()
+    {
+        foreach (var content in Enum.GetValues<IdleNotchContent>())
+        {
+            var speaks = Enumerable.Range(0, 3).All(variant => !string.IsNullOrWhiteSpace(PixelPetAnimation.Message(content, variant)));
+            Assert.Equal(PixelPetAnimation.IsPet(content), speaks);
+        }
+    }
+
+    [Fact]
     public void RoutineIncludesEveryActionAndBothWalls()
     {
         var poses = Enumerable.Range(0, 864).Select(frame => PixelPetAnimation.At(TimeSpan.FromSeconds(frame / 8d))).ToArray();

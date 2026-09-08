@@ -12,7 +12,8 @@ public readonly record struct PixelPetPose(
 public static class PixelPetAnimation
 {
     public static bool IsPet(IdleNotchContent content) =>
-        content is IdleNotchContent.Dog or IdleNotchContent.Cat or IdleNotchContent.Panda;
+        content is IdleNotchContent.Dog or IdleNotchContent.Cat or IdleNotchContent.Panda
+            or IdleNotchContent.Duck or IdleNotchContent.Hamster;
 
     public static bool ShouldAnimate(IdleNotchContent content, bool visible, bool suppressed, bool alert, bool media, bool transitioning) =>
         IsPet(content) && visible && !suppressed && !alert && !media && !transitioning;
@@ -88,6 +89,12 @@ public static class PixelPetAnimation
         (IdleNotchContent.Panda, 0) => "안녕!",
         (IdleNotchContent.Panda, 1) => "대나무!",
         (IdleNotchContent.Panda, _) => "데굴데굴~",
+        (IdleNotchContent.Duck, 0) => "꽥!",
+        (IdleNotchContent.Duck, 1) => "물놀이 갈까?",
+        (IdleNotchContent.Duck, _) => "뒤뚱뒤뚱~",
+        (IdleNotchContent.Hamster, 0) => "찍찍!",
+        (IdleNotchContent.Hamster, 1) => "체리 맛있어!",
+        (IdleNotchContent.Hamster, _) => "볼이 빵빵해~",
         _ => string.Empty
     };
 
