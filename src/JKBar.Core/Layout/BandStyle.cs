@@ -7,6 +7,9 @@ public sealed record BandStyle(Color Colour, int OpacityPercent)
 {
     public static BandStyle Default { get; } = new(Color.White, 25);
 
+    /// <summary>Null leaves the load graphs the colour of the text beside them.</summary>
+    public Color? GraphColour { get; init; }
+
     public int Opacity => Math.Clamp(OpacityPercent, 0, 100);
 
     /// <summary>

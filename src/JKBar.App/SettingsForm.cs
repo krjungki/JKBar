@@ -33,6 +33,9 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _updateOnStartup = new() { Text = "시작할 때도 한 번 확인", AutoSize = true };
     private readonly Button _bandColour = new() { Text = "색 선택...", AutoSize = true };
     private readonly Panel _bandSwatch = new() { Width = 44, Height = 24, BorderStyle = BorderStyle.FixedSingle };
+    private readonly Button _graphColour = new() { Text = "색 선택...", AutoSize = true };
+    private readonly Panel _graphSwatch = new() { Width = 44, Height = 24, BorderStyle = BorderStyle.FixedSingle };
+    private readonly CheckBox _graphFollowsText = new() { Text = "글자색 사용", AutoSize = true };
 
     // Ticks count 5% each, so the slider cannot land on a value the user did not ask for.
     private readonly TrackBar _bandOpacity = new()
@@ -119,6 +122,7 @@ internal sealed class SettingsForm : Form
 
     private BandTypographySettings _typography;
     private Color _selectedBandColour;
+    private Color _selectedGraphColour;
     private bool _suspendPreview = true;
 
     /// <summary>Raised while editing so the bar shows the pending values before they are confirmed.</summary>
@@ -138,6 +142,8 @@ internal sealed class SettingsForm : Form
         _original = normalized;
         _typography = normalized.Typography;
         _selectedBandColour = Color.FromArgb(normalized.Appearance.BandColourArgb);
+        _selectedGraphColour = Color.FromArgb(
+            normalized.BandItems.GraphColourArgb ?? normalized.Typography.TextColourArgb);
 
         Text = $"JKBar {BuildInfo.Version} 설정";
         FormBorderStyle = FormBorderStyle.Sizable;
@@ -168,6 +174,14 @@ internal sealed class SettingsForm : Form
         _updateOnStartup.Checked = normalized.Update.CheckOnStartup;
 
         _bandSwatch.BackColor = _selectedBandColour;
+        _graphSwatch.BackColor = _selectedGraphColour;
+        _graphFollowsText.Checked = normalized.BandItems.GraphColourArgb is null;
+        _graphFollowsText.CheckedChanged += (_, _) =>
+        {
+            UpdateGraphColourState();
+            RaisePreview();
+        };
+        UpdateGraphColourState();
         _bandOpacity.Value = Math.Clamp((int)Math.Round(normalized.Appearance.BandOpacityPercent / 5d), 0, 20);
         _bandOpacity.ValueChanged += (_, _) =>
         {
@@ -235,6 +249,7 @@ internal sealed class SettingsForm : Form
         }
 
         _bandColour.Click += (_, _) => ChooseBandColour();
+        _graphColour.Click += (_, _) => ChooseGraphColour();
         Controls.Add(BuildRoot());
         FormClosing += ValidateBeforeClose;
 
@@ -447,6 +462,12 @@ internal sealed class SettingsForm : Form
         opacityRow.Controls.Add(_bandOpacity);
         opacityRow.Controls.Add(_bandOpacityValue);
 
+        var graphColourRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        _graphFollowsText.Margin = new Padding(3, 7, 10, 3);
+        graphColourRow.Controls.Add(_graphFollowsText);
+        graphColourRow.Controls.Add(_graphSwatch);
+        graphColourRow.Controls.Add(_graphColour);
+
         var layout = FormGrid();
         AddRow(layout, "Bar 색", colorRow);
         AddRow(layout, "Bar 투명도", opacityRow);
@@ -456,6 +477,7 @@ internal sealed class SettingsForm : Form
         AddRow(layout, "글꼴", fontRow);
         AddRow(layout, string.Empty, _textShadow);
         AddRow(layout, "선택한 항목 표시 형식", _percentStyle);
+        AddRow(layout, "성능 그래프 색", graphColourRow);
         AddRow(layout, "오른쪽 표시 항목", itemLayout, fill: true);
         return layout;
     }
@@ -815,6 +837,30 @@ internal sealed class SettingsForm : Form
         }
     }
 
+    private void ChooseGraphColour()
+    {
+        using var dialog = new ColorDialog { Color = _selectedGraphColour, FullOpen = true, AnyColor = true };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _selectedGraphColour = dialog.Color;
+        _graphSwatch.BackColor = dialog.Color;
+        _graphFollowsText.Checked = false;
+        UpdateGraphColourState();
+        RaisePreview();
+    }
+
+    private void UpdateGraphColourState()
+    {
+        var own = !_graphFollowsText.Checked;
+        _graphColour.Enabled = own;
+        _graphSwatch.BackColor = own
+            ? _selectedGraphColour
+            : Color.FromArgb(_typography.TextColourArgb);
+    }
+
     private void ChooseImage()
     {
         using var dialog = new OpenFileDialog
@@ -875,6 +921,7 @@ internal sealed class SettingsForm : Form
 
         // The name stays readable ink; the chosen colour gets its own bordered swatch because white on white vanishes.
         _textSwatch.BackColor = Color.FromArgb(_typography.TextColourArgb);
+        UpdateGraphColourState();
     }
 
     /// <summary>A display the user unplugged is still offered, so choosing it again does not need it plugged in.</summary>
@@ -908,7 +955,8 @@ internal sealed class SettingsForm : Form
             Hidden = entries.Where((_, index) => !_items.GetItemChecked(index)).Select(entry => entry.Kind).ToArray(),
             PercentStyles = _percentStyles
                 .Select(pair => new BandItemStyle { Kind = pair.Key, Style = pair.Value })
-                .ToArray()
+                .ToArray(),
+            GraphColourArgb = _graphFollowsText.Checked ? null : _selectedGraphColour.ToArgb()
         };
     }
 

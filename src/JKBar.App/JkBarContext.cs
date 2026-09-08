@@ -280,11 +280,17 @@ internal sealed class JkBarContext : ApplicationContext
         var previous = _applied;
 
         if (previous is null || previous.Appearance.BandColourArgb != appearance.BandColourArgb
-            || previous.Appearance.BandOpacityPercent != appearance.BandOpacityPercent)
+            || previous.Appearance.BandOpacityPercent != appearance.BandOpacityPercent
+            || previous.BandItems.GraphColourArgb != normalized.BandItems.GraphColourArgb)
         {
             _bar.SetBand(new BandStyle(
                 Color.FromArgb(appearance.BandColourArgb),
-                appearance.BandOpacityPercent));
+                appearance.BandOpacityPercent)
+            {
+                GraphColour = normalized.BandItems.GraphColourArgb is { } graph
+                    ? Color.FromArgb(graph)
+                    : null
+            });
         }
 
         if (previous is null || previous.Typography != normalized.Typography)

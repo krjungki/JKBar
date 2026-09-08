@@ -326,6 +326,33 @@ public class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void LeavesTheGraphColourUnsetWhenItFollowsTheText()
+    {
+        Assert.Null(new BandItemsSettings().Normalized().GraphColourArgb);
+    }
+
+    [Fact]
+    public void MakesAChosenGraphColourOpaque()
+    {
+        var settings = new BandItemsSettings { GraphColourArgb = 0x00_20_91_58 }.Normalized();
+
+        Assert.Equal(unchecked((int)0xFF_20_91_58), settings.GraphColourArgb);
+    }
+
+    [Fact]
+    public void KeepsTheGraphColourThroughASaveAndLoad()
+    {
+        var store = Store();
+
+        store.Save(new JkBarSettings
+        {
+            BandItems = new BandItemsSettings { GraphColourArgb = unchecked((int)0xFF_20_91_58) }
+        });
+
+        Assert.Equal(unchecked((int)0xFF_20_91_58), store.Load().BandItems.GraphColourArgb);
+    }
+
+    [Fact]
     public void AdoptsAnEarlierFileWhenTheNewLocationIsEmpty()
     {
         Directory.CreateDirectory(_directory);

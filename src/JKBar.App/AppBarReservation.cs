@@ -31,6 +31,7 @@ internal sealed class AppBarReservation : Form
     private int _imageScalePercent = 100;
     private string? _activeApp;
     private Bitmap? _surface;
+    private Size _surfaceSize;
     private int _height;
     private bool _registered;
     private bool _reportedNewsCramped;
@@ -218,8 +219,10 @@ internal sealed class AppBarReservation : Form
             return;
         }
 
-        // Kept between repaints: the readouts change every second and this is as wide as the screen.
-        if (_surface is null || _surface.Width != _band.Width || _surface.Height != _band.Height)
+        // Kept between repaints: the readouts change every second and this is as wide as the screen. The size is
+        // remembered separately because asking a disposed bitmap for its width throws the same ArgumentException
+        // a bad allocation does, which is how this used to fail during a display change.
+        if (_surface is null || _surfaceSize.Width != _band.Width || _surfaceSize.Height != _band.Height)
         {
             var replacement = TryCreateSurface();
             if (replacement is null)
@@ -229,6 +232,7 @@ internal sealed class AppBarReservation : Form
 
             _surface?.Dispose();
             _surface = replacement;
+            _surfaceSize = replacement.Size;
         }
 
         bool cramped;
@@ -236,7 +240,7 @@ internal sealed class AppBarReservation : Form
         {
             var areas = BandRenderer.Paint(
                 graphics,
-                _surface.Size,
+                _surfaceSize,
                 _notch,
                 _notchCornerRadius,
                 _style,

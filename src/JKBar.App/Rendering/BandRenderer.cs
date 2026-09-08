@@ -114,7 +114,7 @@ internal static class BandRenderer
         using SolidBrush? shadow = typography.TextShadow
             ? new SolidBrush(ShadowColourFor(foregroundColour))
             : null;
-        var ink = new Ink(foreground, shadow, foregroundColour);
+        var ink = new Ink(foreground, shadow, foregroundColour, style.GraphColour ?? foregroundColour);
         var contentLeft = LeftContentStart(slots.Left, imageRight, padding);
         var (newsBox, quoteBox, newsCramped) = LeftBoxes(g, slots.Left, activeApp, valueFont, padding, contentLeft);
         DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, contentLeft, newsBox.Left);
@@ -620,7 +620,7 @@ internal static class BandRenderer
         var right = new RectangleF(bounds.Left + labelWidth + inner, bounds.Top, graphWidth, bounds.Height);
         if (!withValue)
         {
-            DrawTrail(g, item.Trail, Plot(right), ink.Colour);
+            DrawTrail(g, item.Trail, Plot(right), ink.Graph);
             return;
         }
 
@@ -639,7 +639,7 @@ internal static class BandRenderer
             g,
             item.Trail,
             Plot(new RectangleF(right.Left, right.Top + textHeight, right.Width, right.Height - textHeight)),
-            ink.Colour);
+            ink.Graph);
     }
 
     private static void DrawVerticalLabel(
@@ -1023,7 +1023,8 @@ internal static class BandRenderer
             : Color.FromArgb(150, 255, 255, 255);
 
     /// <param name="Colour">The same colour the foreground brush paints, for the shades a graph needs.</param>
-    private readonly record struct Ink(Brush Foreground, Brush? Shadow, Color Colour);
+    /// <param name="Graph">What the load charts are drawn in, which the user can set apart from the text.</param>
+    private readonly record struct Ink(Brush Foreground, Brush? Shadow, Color Colour, Color Graph);
 
     /// <summary>The letter in front of a rate row, and the colour that tells the two rows apart at a glance.</summary>
     private readonly record struct Marker(string Text, Color Colour);

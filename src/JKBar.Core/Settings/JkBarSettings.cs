@@ -107,6 +107,9 @@ public sealed record BandItemsSettings
     public BandItemKind[] Hidden { get; init; } = [];
     public BandItemStyle[] PercentStyles { get; init; } = [];
 
+    /// <summary>Null leaves the graphs the colour of the text beside them.</summary>
+    public int? GraphColourArgb { get; init; }
+
     public BandItemsSettings Normalized()
     {
         var order = (Order ?? [])
@@ -124,7 +127,13 @@ public sealed record BandItemsSettings
             .DistinctBy(style => style.Kind)
             .ToArray();
 
-        return this with { Order = order, Hidden = hidden, PercentStyles = styles };
+        return this with
+        {
+            Order = order,
+            Hidden = hidden,
+            PercentStyles = styles,
+            GraphColourArgb = GraphColourArgb is { } argb ? argb | unchecked((int)0xFF000000) : null
+        };
     }
 
     public bool IsVisible(BandItemKind kind) => !Hidden.Contains(kind);
