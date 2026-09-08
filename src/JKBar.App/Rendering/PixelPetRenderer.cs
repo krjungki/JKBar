@@ -12,8 +12,8 @@ internal static class PixelPetRenderer
     {
         var pose = PixelPetAnimation.At(elapsed);
         var drawn = PetSpriteSheet.Frame(pet, pose);
-        var sprite = drawn is null ? PixelPetSprites.For(pet, pose) : [];
-        if ((drawn is null && sprite.Count == 0) || !PixelPetLayout.Fits(metrics.Width, metrics.Height))
+        var sprite = drawn.Art is null ? PixelPetSprites.For(pet, pose) : [];
+        if ((drawn.Art is null && sprite.Count == 0) || !PixelPetLayout.Fits(metrics.Width, metrics.Height))
         {
             return;
         }
@@ -40,12 +40,18 @@ internal static class PixelPetRenderer
             graphics.SmoothingMode = SmoothingMode.None;
             graphics.PixelOffsetMode = PixelOffsetMode.None;
 
-            if (drawn is not null)
+            if (drawn.Art is not null)
             {
                 // Nearest neighbour keeps the drawn pixels square instead of smearing them at fractional scale.
                 graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
                 graphics.PixelOffsetMode = PixelOffsetMode.Half;
-                graphics.DrawImage(drawn, new Rectangle(left, top, side, side), 0, 0, drawn.Width, drawn.Height, GraphicsUnit.Pixel);
+                if (drawn.Rim is not null)
+                {
+                    var edge = new Rectangle(left - pixel, top - pixel, side + pixel * 2, side + pixel * 2);
+                    graphics.DrawImage(drawn.Rim, edge, 0, 0, drawn.Rim.Width, drawn.Rim.Height, GraphicsUnit.Pixel);
+                }
+
+                graphics.DrawImage(drawn.Art, new Rectangle(left, top, side, side), 0, 0, drawn.Art.Width, drawn.Art.Height, GraphicsUnit.Pixel);
                 graphics.PixelOffsetMode = PixelOffsetMode.None;
             }
             else
