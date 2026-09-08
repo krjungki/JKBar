@@ -51,7 +51,12 @@ internal static class PetSpriteSheet
     private static FrozenDictionary<IdleNotchContent, FrozenDictionary<(PixelPetAction, int, bool), Bitmap[]>> Load()
     {
         var sheets = new Dictionary<IdleNotchContent, FrozenDictionary<(PixelPetAction, int, bool), Bitmap[]>>();
-        foreach (var (pet, resource) in new[] { (IdleNotchContent.Dog, "JKBar.App.Assets.pet-dog.png") })
+        foreach (var (pet, resource) in new[]
+                 {
+                     (IdleNotchContent.Dog, "JKBar.App.Assets.pet-dog.png"),
+                     (IdleNotchContent.Cat, "JKBar.App.Assets.pet-cat.png"),
+                     (IdleNotchContent.Panda, "JKBar.App.Assets.pet-panda.png")
+                 })
         {
             var frames = Slice(resource);
             if (frames is not null) sheets[pet] = frames;

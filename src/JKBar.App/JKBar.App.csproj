@@ -41,6 +41,8 @@
   <ItemGroup>
     <!-- Hand-drawn pet frames ship inside the assembly so a portable copy stays a single executable. -->
     <EmbeddedResource Include="Assets\pet-dog.png" LogicalName="JKBar.App.Assets.pet-dog.png" />
+    <EmbeddedResource Include="Assets\pet-cat.png" LogicalName="JKBar.App.Assets.pet-cat.png" />
+    <EmbeddedResource Include="Assets\pet-panda.png" LogicalName="JKBar.App.Assets.pet-panda.png" />
   </ItemGroup>
 
   <ItemGroup>
