@@ -53,6 +53,9 @@ internal static class BandRenderer
     /// <summary>The graph is about as wide as the band is tall, which reads as a chart without crowding the rest.</summary>
     private const float GraphShareOfHeight = 0.95f;
 
+    /// <summary>How tall the reading above a chart is set, as a share of the band. The chart takes what is left.</summary>
+    private const float GraphValueShareOfHeight = 0.28f;
+
     /// <summary>How far down the next stacked letter starts, in line heights.</summary>
     private const float LetterStep = 0.72f;
 
@@ -621,11 +624,13 @@ internal static class BandRenderer
             return;
         }
 
-        var textHeight = Math.Min(bounds.Height * 0.5f, (float)Math.Ceiling(stacked.GetHeight(g)));
+        using var reading = SizedLike(labelFont, height * GraphValueShareOfHeight);
+
+        var textHeight = Math.Min(bounds.Height * 0.5f, (float)Math.Ceiling(reading.GetHeight(g)));
         WriteInBox(
             g,
             item.Values[0].Text,
-            stacked,
+            reading,
             format,
             ink,
             new RectangleF(right.Left, right.Top, right.Width, textHeight),
@@ -722,7 +727,7 @@ internal static class BandRenderer
     /// <summary>The chart keeps a hair of clearance so its outline never touches the band's edges.</summary>
     private static RectangleF Plot(RectangleF area)
     {
-        var inset = Math.Max(1f, area.Height * 0.14f);
+        var inset = Math.Max(1f, area.Height * 0.17f);
         return RectangleF.Inflate(area, 0, -inset);
     }
 
@@ -750,15 +755,20 @@ internal static class BandRenderer
     {
         // A line box is roughly a third taller than the size it was asked for, which is what has to fit.
         var lines = LetterStackHeight(1.32f, letters);
-        var size = Math.Max(5f, Math.Min(model.Size, height * 0.94f / lines));
+        return SizedLike(model, Math.Min(model.Size, height * 0.94f / lines));
+    }
+
+    private static Font SizedLike(Font model, float size)
+    {
+        var wanted = Math.Max(5f, size);
 
         try
         {
-            return new Font(model.FontFamily, size, model.Style, GraphicsUnit.Pixel);
+            return new Font(model.FontFamily, wanted, model.Style, GraphicsUnit.Pixel);
         }
         catch (ArgumentException)
         {
-            return new Font(BandTypographySettings.DefaultFontFamily, size, model.Style, GraphicsUnit.Pixel);
+            return new Font(BandTypographySettings.DefaultFontFamily, wanted, model.Style, GraphicsUnit.Pixel);
         }
     }
 
