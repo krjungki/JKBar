@@ -3,8 +3,7 @@
 macOS 노치를 흉내 낸 Windows 상단 표시 바. 화면 위쪽에 노치 모양 창을 띄우고 그 안에 아이콘, 숫자, 텍스트를
 개별 항목으로 구성해 상시 표시하거나 알림으로 띄운다.
 
-Status: PROTOTYPE. 실행 가능한 Windows 프로토타입이 있으며 정본 계획은
-[`.appdev/plans/20260903_appdev_JKBar.md`](../../.appdev/plans/20260903_appdev_JKBar.md)이다.
+Status: RELEASED. 0.5.0.
 
 ## Install
 
@@ -19,12 +18,11 @@ Status: PROTOTYPE. 실행 가능한 Windows 프로토타입이 있으며 정본 
 
 | OS | Status | Architecture | Runtime | Artifact | Verification |
 |---|---|---|---|---|---|
-| Windows | not-targeted | x64 | .NET 10 self-contained | single-file EXE | 프로토타입 스모크는 통과했지만 release security review, artifact hash와 최종 플랫폼 증거가 닫히지 않았다. |
+| Windows | supported | x64 | .NET 10 self-contained | single-file EXE | 릴리스 artifact를 내려받아 공개된 SHA-256과 대조했고, 같은 빌드로 실제 화면에서 띠·노치·알림·업데이트 확인을 실행했다. 해시는 릴리스의 `SHA256SUMS.txt`에 있다. |
 | macOS | not-targeted | — | — | — | Win32 레이어드 창과 트레이에 의존하는 Windows 전용 도구다. |
 | Linux | not-targeted | — | — | — | 같은 이유로 범위 밖이다. |
 
-Windows를 `supported`로 선언하지 않은 것은 의도적이다. 저장소 계약상 `supported`는 release artifact의 실제 OS
-스모크와 해시 증거를 요구하며 현재 산출물은 개발 중인 프로토타입이다.
+Windows 11에서 개발하고 검증했다. Windows 10에서는 실행 증거가 없다.
 
 ## 무엇을 만드는가
 
