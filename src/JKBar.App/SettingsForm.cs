@@ -1201,6 +1201,53 @@ internal sealed class SettingsForm : Form
         return tabs;
     }
 
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        GrowToFitRows();
+    }
+
+    // The starting size is in pixels but the fonts follow the display's scaling, so on a high-scale display a long
+    // row can want more room than the window it was sized for.
+    private void GrowToFitRows()
+    {
+        var tabs = Descendants(this).OfType<TabControl>().ToList();
+        var selected = tabs.Select(tab => tab.SelectedIndex).ToList();
+
+        // A page only lays out once it has been shown, and the nested tabs only exist after their page has.
+        for (var pass = 0; pass < 2; pass++)
+        foreach (var tab in tabs)
+        for (var page = 0; page < tab.TabPages.Count; page++)
+        {
+            tab.SelectedIndex = page;
+            tab.PerformLayout();
+        }
+
+        var shortfall = 0;
+        foreach (var control in Descendants(this))
+        {
+            if (control is not (CheckBox or RadioButton or Label or Button) || control.Width <= 0) continue;
+            shortfall = Math.Max(shortfall, control.PreferredSize.Width - control.Width);
+        }
+
+        for (var index = 0; index < tabs.Count; index++) tabs[index].SelectedIndex = selected[index];
+        if (shortfall <= 0) return;
+
+        ClientSize = new Size(ClientSize.Width + Math.Min(shortfall, 400), ClientSize.Height);
+
+        // Narrower than this and the same row is cut off again, so the window is not allowed to go there.
+        MinimumSize = new Size(Math.Max(MinimumSize.Width, Size.Width), MinimumSize.Height);
+    }
+
+    private static IEnumerable<Control> Descendants(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            yield return child;
+            foreach (var deeper in Descendants(child)) yield return deeper;
+        }
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
