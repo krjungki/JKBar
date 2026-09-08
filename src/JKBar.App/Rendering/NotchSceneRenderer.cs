@@ -2,6 +2,7 @@
 // with the middle of the notch.
 using System.Collections.Frozen;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Reflection;
 using JKBar.Core.Layout;
 using JKBar.Core.Settings;
@@ -26,11 +27,13 @@ internal static class NotchSceneRenderer
             graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
             graphics.PixelOffsetMode = PixelOffsetMode.Half;
 
-            // Scaled to cover rather than to fit, so a notch of any shape is filled and the crop stays centred.
-            var scale = Math.Max(metrics.Width / (double)picture.Width, metrics.Height / (double)picture.Height);
-            var width = (int)Math.Ceiling(picture.Width * scale);
-            var height = (int)Math.Ceiling(picture.Height * scale);
-            graphics.DrawImage(picture, new Rectangle((metrics.Width - width) / 2, (metrics.Height - height) / 2, width, height));
+            // Fitting the height shows the picture from sky to ground and keeps its horizon on the notch's middle
+            // row. Mirroring carries the scenery out to the corners rather than scaling up and losing the sky.
+            var scale = metrics.Height / (double)picture.Height;
+            var drawn = picture.Width * scale;
+            using var brush = new TextureBrush(picture, WrapMode.TileFlipX);
+            brush.Transform = new Matrix((float)scale, 0, 0, (float)scale, (float)((metrics.Width - drawn) / 2), 0);
+            graphics.FillRectangle(brush, 0, 0, metrics.Width, metrics.Height);
         }
         finally
         {
@@ -50,7 +53,12 @@ internal static class NotchSceneRenderer
         {
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource);
             if (stream is null) continue;
-            scenes[scene] = new Bitmap(stream);
+
+            // A bitmap built straight from a stream keeps reading from it, so it is copied into one of its own.
+            using var loaded = new Bitmap(stream);
+            var picture = new Bitmap(loaded.Width, loaded.Height, PixelFormat.Format32bppArgb);
+            using (var canvas = Graphics.FromImage(picture)) canvas.DrawImageUnscaled(loaded, 0, 0);
+            scenes[scene] = picture;
         }
 
         return scenes.ToFrozenDictionary();
