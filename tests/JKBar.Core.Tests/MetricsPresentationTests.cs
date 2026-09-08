@@ -66,9 +66,24 @@ public class MetricsPresentationTests
     [Fact]
     public void ListsTheReadoutsInDisplayOrder()
     {
-        var labels = MetricsSource.Items(MetricsSnapshot.Empty).Select(item => item.Label);
+        var items = MetricsSource.Items(MetricsSnapshot.Empty with { GpuAvailable = true });
+        var labels = items.Select(item => item.Label);
 
-        Assert.Equal(["CPU", "RAM", "DISK", "NET"], labels);
+        Assert.Equal(["CPU", "GPU", "RAM", "", "NET"], labels);
+        Assert.All(items, item => Assert.Null(item.Accent));
+        Assert.All(items.Take(3), item => Assert.Equal(BandItemLayout.StackedPercent, item.Layout));
+        Assert.Equal(
+            [BandItemKind.Cpu, BandItemKind.Gpu, BandItemKind.Memory, BandItemKind.Disk, BandItemKind.Network],
+            items.Select(item => item.Kind));
+        Assert.Equal(BandItemLayout.IndicatorRows, items[3].Layout);
+        Assert.Equal(string.Empty, items[3].Label);
+        Assert.Equal(BandItemLayout.RateRows, items[4].Layout);
+    }
+
+    [Fact]
+    public void OmitsGpuWhenTheCounterIsUnavailable()
+    {
+        Assert.DoesNotContain(MetricsSource.Items(MetricsSnapshot.Empty), item => item.Label == "GPU");
     }
 
     /// <summary>Sub-unit jitter must not force a full screen-width repaint every second.</summary>
@@ -89,6 +104,26 @@ public class MetricsPresentationTests
 
         Assert.Equal(2, network.Values.Count);
         Assert.All(network.Values, value => Assert.False(string.IsNullOrEmpty(value.Template)));
+    }
+
+    [Fact]
+    public void OrdersNetworkAsUploadThenDownload()
+    {
+        var snapshot = new MetricsSnapshot(0, 0, 1024, 2048, 0, 0);
+        var network = MetricsSource.Items(snapshot).Single(item => item.Label == "NET");
+
+        Assert.Equal("2.0 KB/s", network.Values[0].Text);
+        Assert.Equal("1.0 KB/s", network.Values[1].Text);
+    }
+
+    [Fact]
+    public void OrdersDiskAsReadThenWrite()
+    {
+        var snapshot = new MetricsSnapshot(0, 0, 0, 0, 1024, 2048);
+        var disk = MetricsSource.Items(snapshot).Single(item => item.Layout == BandItemLayout.IndicatorRows);
+
+        Assert.Equal("1.0 KB/s", disk.Values[0].Text);
+        Assert.Equal("2.0 KB/s", disk.Values[1].Text);
     }
 
     [Fact]

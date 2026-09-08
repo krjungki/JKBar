@@ -29,6 +29,22 @@ internal static class NotchWindowInterop
     internal const int WmDisplayChange = 0x007E;
     internal const int WmSettingChange = 0x001A;
     internal const int WmWindowPosChanging = 0x0046;
+    internal const int WmDeviceChange = 0x0219;
+
+    internal const int DeviceArrived = 0x8000;
+    internal const int DeviceRemoved = 0x8004;
+    internal const int DeviceTypeVolume = 2;
+
+    /// <summary>The prefix of DEV_BROADCAST_VOLUME; volume broadcasts reach every top-level window unregistered.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct VolumeBroadcast
+    {
+        internal int Size;
+        internal int DeviceType;
+        internal int Reserved;
+        internal uint UnitMask;
+        internal ushort Flags;
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -55,6 +71,9 @@ internal static class NotchWindowInterop
 
     /// <summary>The same treatment for the desktop mode, where the shell keeps trying to lift the window.</summary>
     internal static void PinToBottom(IntPtr lParam) => Pin(lParam, HwndBottom);
+
+    /// <summary>Keeps one window immediately behind another, so a reorder can never put them the wrong way round.</summary>
+    internal static void PinBehind(IntPtr lParam, IntPtr other) => Pin(lParam, other);
 
     private static void Pin(IntPtr lParam, IntPtr insertAfter)
     {

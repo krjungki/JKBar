@@ -1,183 +1,454 @@
-// Hosts the bar and its tray menu. The bar is click-through, so the tray is the only way to reach or quit the app.
+// Hosts the bar, the minimal tray menu, and the unified settings window.
+using System.Diagnostics;
 using System.Reflection;
+using JKBar.App.Interop;
+using JKBar.App.Update;
 using JKBar.Core;
+using JKBar.Core.Alerts;
 using JKBar.Core.Layout;
+using JKBar.Core.Settings;
+using JKBar.Core.Update;
+using Microsoft.Web.WebView2.Core;
 
 namespace JKBar.App;
 
 internal sealed class JkBarContext : ApplicationContext
 {
-    /// <summary>
-    /// The icon opens this itself on right-click but exposes no public way to do the same from the left button.
-    /// Borrowing its own method keeps both buttons identical, including how the menu dismisses; a test pins the
-    /// name so a future runtime cannot drop it silently.
-    /// </summary>
     private static readonly MethodInfo? IconMenuOpener =
         typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic);
 
+    private readonly SettingsStore _settingsStore = SettingsStore.ForApp();
     private readonly NotchForm _bar = new();
+    private readonly NewsArticleWindow _article = new();
     private readonly NotifyIcon _tray = new();
     private readonly IntPtr _iconHandle;
+    private readonly UpdateService _updates = new();
+
+    // Hourly is often enough for a daily or weekly schedule and costs nothing while the frequency is Never.
+    private readonly System.Windows.Forms.Timer _updateClock = new() { Interval = 60 * 60 * 1000 };
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly DateTimeOffset _startedUtc = DateTimeOffset.UtcNow;
+    private bool _updateRunning;
+    private bool _checkedThisRun;
+    private JkBarSettings _settings;
+    private JkBarSettings? _applied;
 
     internal JkBarContext()
     {
+        _settings = _settingsStore.Load();
         var (icon, handle) = TrayIconFactory.Create();
         _iconHandle = handle;
 
         _tray.Icon = icon;
         _tray.Text = $"JKBar {BuildInfo.Version}";
-        _tray.Visible = true;
+        _tray.ContextMenuStrip = BuildTrayMenu();
         _tray.MouseUp += (_, e) =>
         {
             if (e.Button == MouseButtons.Left)
             {
-                OpenMenu();
+                OpenTrayMenu();
             }
         };
+        _tray.Visible = true;
 
         _bar.Show();
-        _tray.ContextMenuStrip = BuildMenu();
+        _bar.NewsClicked += ShowArticle;
+        _bar.ProcessClicked += ProcessActivator.Activate;
+        _article.OpenInBrowser += OpenUrl;
+        _article.LoadBounds = () => _settings.ArticleWindow;
+        _article.SaveBounds = RememberArticleWindow;
+        AdoptExternalBandImage();
+        ApplySettings(_settings, showImageError: false);
+
+        _updateClock.Tick += async (_, _) => await CheckIfDueAsync();
+        _updateClock.Start();
+        _ = CheckIfDueAsync();
     }
 
-    private ContextMenuStrip BuildMenu()
+    /// <summary>Nothing is contacted unless the user turned automatic checks on; the default is off.</summary>
+    private async Task CheckIfDueAsync()
     {
-        var menu = new ContextMenuStrip();
-        var overlap = BuildOverlapMenu();
-        var band = BuildBandMenu();
-
-        menu.Items.Add(overlap);
-        menu.Items.Add(band);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("알림 펴짐 미리보기", null, (_, _) => _bar.Announce(TimeSpan.FromSeconds(3)));
-        menu.Items.Add("현재 크기 보기", null, (_, _) => ShowMeasurements());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("종료", null, (_, _) => Quit());
-
-        menu.Opening += (_, _) =>
-        {
-            RefreshOverlapChecks(overlap);
-            RefreshBandChecks(band);
-        };
-
-        return menu;
-    }
-
-    private ToolStripMenuItem BuildOverlapMenu()
-    {
-        var menu = new ToolStripMenuItem("겹침");
-
-        foreach (var (label, mode) in new[]
-        {
-            ("항상 위", OverlapMode.Floating),
-            ("자리 예약 (창이 아래에서 시작)", OverlapMode.ReserveTopEdge),
-            ("바탕화면에 고정 (창 뒤로)", OverlapMode.PinnedToDesktop)
-        })
-        {
-            var value = mode;
-            var item = new ToolStripMenuItem(label) { Tag = value };
-            item.Click += (_, _) => _bar.SetOverlap(value);
-            menu.DropDownItems.Add(item);
-        }
-
-        return menu;
-    }
-
-    private ToolStripMenuItem BuildBandMenu()
-    {
-        var menu = new ToolStripMenuItem("예약 띠");
-        var colours = new ToolStripMenuItem("색");
-
-        foreach (var (label, colour) in new[]
-        {
-            ("검정", Color.Black),
-            ("진회색", Color.FromArgb(28, 28, 30)),
-            ("흰색", Color.White)
-        })
-        {
-            var value = colour;
-            var item = new ToolStripMenuItem(label) { Tag = value };
-            item.Click += (_, _) => _bar.SetBand(_bar.Band with { Colour = value });
-            colours.DropDownItems.Add(item);
-        }
-
-        colours.DropDownItems.Add(new ToolStripSeparator());
-        colours.DropDownItems.Add("직접 선택...", null, (_, _) => PickColour());
-
-        var opacity = new ToolStripMenuItem("투명도");
-        foreach (var step in new[] { 100, 75, 50, 25, 0 })
-        {
-            var value = step;
-            var item = new ToolStripMenuItem($"{value}%") { Tag = value };
-            item.Click += (_, _) => _bar.SetBand(_bar.Band with { OpacityPercent = value });
-            opacity.DropDownItems.Add(item);
-        }
-
-        menu.DropDownItems.Add(colours);
-        menu.DropDownItems.Add(opacity);
-        menu.DropDownItems.Add(new ToolStripSeparator());
-        menu.DropDownItems.Add("이미지 선택...", null, (_, _) => PickImage());
-        menu.DropDownItems.Add("이미지 제거", null, (_, _) => _bar.ClearImage());
-
-        return menu;
-    }
-
-    private void PickImage()
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "띠 왼쪽에 표시할 이미지",
-            Filter = "이미지|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico|모든 파일|*.*"
-        };
-
-        if (dialog.ShowDialog() != DialogResult.OK)
+        var update = _settings.Update.Normalized();
+        if (!UpdateSchedule.IsDue(
+            update.Check,
+            update.LastCheckUtc,
+            _startedUtc,
+            DateTimeOffset.UtcNow,
+            update.CheckOnStartup,
+            _checkedThisRun))
         {
             return;
         }
 
-        if (!_bar.SetImage(dialog.FileName))
+        await CheckForUpdatesAsync(announce: false);
+    }
+
+    private async Task CheckForUpdatesAsync(bool announce)
+    {
+        if (_updateRunning)
+        {
+            return;
+        }
+
+        _updateRunning = true;
+        try
+        {
+            _checkedThisRun = true;
+            var outcome = await _updates.RunAsync(announce, _shutdown.Token);
+            if (outcome != UpdateOutcome.CheckFailed)
+            {
+                RememberUpdateCheck();
+            }
+
+            if (outcome == UpdateOutcome.Applying)
+            {
+                Quit();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The app is closing.
+        }
+        finally
+        {
+            _updateRunning = false;
+        }
+    }
+
+    /// <summary>Only the timestamp is written back, so a settings window open at the same time keeps its edits.</summary>
+    private void RememberUpdateCheck()
+    {
+        var stamped = _settings with
+        {
+            Update = _settings.Update with { LastCheckUtc = DateTimeOffset.UtcNow }
+        };
+
+        if (TrySaveSettings(stamped))
+        {
+            _applied = stamped.Normalized();
+        }
+    }
+
+    /// <summary>
+    /// Only the panel's own rectangle is written back, so a settings window open at the same time cannot have its
+    /// edits overwritten by this.
+    /// </summary>
+    private void RememberArticleWindow(ArticleWindowSettings bounds)
+    {
+        if (_settings.ArticleWindow == bounds)
+        {
+            return;
+        }
+
+        _settings = _settings with { ArticleWindow = bounds };
+
+        try
+        {
+            _settingsStore.Save(_settings);
+        }
+        catch (IOException)
+        {
+            // Losing the remembered position is not worth interrupting the user over.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private async void ShowArticle(Rectangle anchor)
+    {
+        if (_article.Visible)
+        {
+            _article.Hide();
+            return;
+        }
+
+        if (_bar.CurrentNews is not { } article)
+        {
+            return;
+        }
+
+        try
+        {
+            await _article.ShowArticleAsync(article, anchor);
+        }
+        catch (Exception error) when (error is WebView2RuntimeNotFoundException or InvalidOperationException or IOException)
+        {
+            // Without the WebView2 runtime there is nothing to read the article in, so hand it to the browser.
+            _article.Hide();
+            OpenUrl(article.Link);
+        }
+    }
+
+    private ContextMenuStrip BuildTrayMenu()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem($"JKBar {BuildInfo.Version}") { Enabled = false });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("설정 열기...", null, (_, _) => OpenSettings());
+        menu.Items.Add("업데이트 확인...", null, async (_, _) => await CheckForUpdatesAsync(announce: true));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("앱 종료", null, (_, _) => Quit());
+        return menu;
+    }
+
+    private void OpenSettings()
+    {
+        using var dialog = new SettingsForm(
+            _settings,
+            PreviewAlert,
+            MeasurementText,
+            ImportBandImage);
+        dialog.Preview += pending => ApplySettings(pending, showImageError: false);
+
+        var result = dialog.ShowDialog();
+        if (result == DialogResult.Abort)
+        {
+            Quit();
+            return;
+        }
+
+        if (result != DialogResult.OK)
+        {
+            ApplySettings(_settings, showImageError: false);
+            return;
+        }
+
+        var updated = dialog.Settings.Normalized();
+        if (TrySaveSettings(updated))
+        {
+            ApplySettings(updated, showImageError: true);
+            _bar.Notify(new NotchAlert(
+                AlertCategory.JkBar,
+                "jkbar.settings.saved",
+                "설정을 적용했습니다",
+                Severity: AlertSeverity.Done));
+        }
+        else
+        {
+            ApplySettings(_settings, showImageError: false);
+        }
+    }
+
+    // A unique key each press, so repeated previews are not collapsed as duplicates.
+    private void PreviewAlert() => _bar.Notify(new NotchAlert(
+        AlertCategory.JkBar,
+        $"jkbar.preview.{DateTime.UtcNow.Ticks}",
+        "알림 미리보기",
+        "활성 알림은 이렇게 표시됩니다",
+        AlertSeverity.Done));
+
+    /// <summary>Only the parts that actually changed are pushed, so live previews cannot restart the appbar or the feed.</summary>
+    private void ApplySettings(JkBarSettings settings, bool showImageError)
+    {
+        var normalized = settings.Normalized();
+        var appearance = normalized.Appearance;
+        var previous = _applied;
+
+        if (previous is null || previous.Appearance.BandColourArgb != appearance.BandColourArgb
+            || previous.Appearance.BandOpacityPercent != appearance.BandOpacityPercent)
+        {
+            _bar.SetBand(new BandStyle(
+                Color.FromArgb(appearance.BandColourArgb),
+                appearance.BandOpacityPercent));
+        }
+
+        if (previous is null || previous.Typography != normalized.Typography)
+        {
+            _bar.SetTypography(normalized.Typography);
+        }
+
+        if (previous is null || !BandItemsMatch(previous.BandItems, normalized.BandItems))
+        {
+            _bar.SetBandItems(normalized.BandItems);
+        }
+
+        if (previous is null || previous.Notch != normalized.Notch)
+        {
+            _bar.SetNotchSettings(normalized.Notch);
+        }
+
+        if (previous is null || previous.News != normalized.News)
+        {
+            _bar.SetNewsSettings(normalized.News);
+        }
+
+        if (previous is null || previous.Appearance.ImagePath != appearance.ImagePath)
+        {
+            ApplyImage(appearance.ImagePath, showImageError);
+        }
+
+        if (previous is null || previous.Appearance.ImageScalePercent != appearance.ImageScalePercent)
+        {
+            _bar.SetImageScale(appearance.ImageScalePercent);
+        }
+
+        if (previous is null || previous.Behaviour != normalized.Behaviour)
+        {
+            _bar.SetBehaviour(normalized.Behaviour);
+        }
+
+        if (previous is null || !ProcessWatchMatches(previous.ProcessWatch, normalized.ProcessWatch))
+        {
+            _bar.SetProcessWatch(normalized.ProcessWatch);
+        }
+
+        if (previous is null || !StocksMatch(previous.Stocks, normalized.Stocks))
+        {
+            _bar.SetStocks(normalized.Stocks);
+        }
+
+        if (previous is null || previous.Appearance.Overlap != appearance.Overlap)
+        {
+            _bar.SetOverlap(appearance.Overlap);
+        }
+
+        if (previous is null || previous.Appearance.MonitorDeviceName != appearance.MonitorDeviceName)
+        {
+            _bar.SetMonitor(appearance.MonitorDeviceName);
+        }
+
+        ApplyAutoStart(normalized.Startup.StartWithWindows, previous);
+
+        _applied = normalized;
+    }
+
+    /// <summary>The registry can drift while JKBar is closed, so the first apply reconciles it either way.</summary>
+    private void ApplyAutoStart(bool wanted, JkBarSettings? previous)
+    {
+        if (previous is not null && previous.Startup.StartWithWindows == wanted && AutoStart.IsEnabled() == wanted)
+        {
+            return;
+        }
+
+        if (!AutoStart.Set(wanted) && wanted)
+        {
+            _bar.Notify(new NotchAlert(
+                AlertCategory.JkBar,
+                "jkbar.autostart.failed",
+                "자동 시작을 켜지 못했습니다",
+                "레지스트리 쓰기가 거부되었습니다",
+                AlertSeverity.Warning));
+        }
+    }
+
+    /// <summary>
+    /// Copies the picture into JKBar's own folder at the size the band draws it. The user is free to move or
+    /// delete whatever they picked afterwards, and the setting keeps working.
+    /// </summary>
+    private string? ImportBandImage(string sourcePath) =>
+        BandImageStore.Import(sourcePath, _settingsStore.Folder);
+
+    /// <summary>Settings written before JKBar kept its own copy still point at the user's file; bring it in once.</summary>
+    private void AdoptExternalBandImage()
+    {
+        var path = _settings.Appearance.ImagePath;
+        if (string.IsNullOrWhiteSpace(path)
+            || BandImageImport.IsImportedCopy(path, _settingsStore.Folder)
+            || ImportBandImage(path) is not { } copied)
+        {
+            return;
+        }
+
+        _settings = _settings with { Appearance = _settings.Appearance with { ImagePath = copied } };
+
+        try
+        {
+            _settingsStore.Save(_settings);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The copy is already in place; it just has to be made again next time.
+        }
+    }
+
+    private void ApplyImage(string? path, bool showImageError)
+    {
+        if (path is null)
+        {
+            _bar.ClearImage();
+            return;
+        }
+
+        if (_bar.SetImage(path))
+        {
+            return;
+        }
+
+        _bar.ClearImage();
+        if (showImageError)
         {
             MessageBox.Show(
-                "이 파일은 이미지로 읽을 수 없습니다. 다른 파일을 골라 주세요.",
+                "선택한 이미지를 읽지 못했습니다. 파일 위치와 형식을 확인해 주세요.",
                 "JKBar",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
     }
 
-    private void PickColour()
+    private static bool BandItemsMatch(BandItemsSettings first, BandItemsSettings second) =>
+        first.Order.SequenceEqual(second.Order)
+        && first.Hidden.SequenceEqual(second.Hidden)
+        && first.PercentStyles.SequenceEqual(second.PercentStyles);
+
+    private static bool ProcessWatchMatches(ProcessWatchSettings first, ProcessWatchSettings second) =>
+        first.Items.SequenceEqual(second.Items);
+
+    private static bool StocksMatch(StockWatchSettings first, StockWatchSettings second) =>
+        first.Enabled == second.Enabled
+        && first.RefreshSeconds == second.RefreshSeconds
+        && first.RotationSeconds == second.RotationSeconds
+        && first.Items.SequenceEqual(second.Items);
+
+    private bool TrySaveSettings(JkBarSettings settings)
     {
-        using var dialog = new ColorDialog { Color = _bar.Band.Colour, FullOpen = true, AnyColor = true };
-        if (dialog.ShowDialog() == DialogResult.OK)
+        try
         {
-            _bar.SetBand(_bar.Band with { Colour = dialog.Color });
+            _settingsStore.Save(settings);
+            _settings = settings;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(
+                $"설정을 저장하지 못했습니다.\n\n{exception.Message}",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return false;
         }
     }
 
-    private void RefreshOverlapChecks(ToolStripMenuItem overlap)
+    private string MeasurementText()
     {
-        foreach (var item in overlap.DropDownItems.OfType<ToolStripMenuItem>())
+        var actual = _bar.ActualBounds();
+        var screen = _bar.LogicalScreenWidth();
+        var share = screen > 0 ? _bar.LogicalWidth / (double)screen : 0;
+
+        return $"논리 너비: {_bar.LogicalWidth}\r\n"
+            + $"실제 픽셀: {actual.Width} x {actual.Height}\r\n"
+            + $"창 상단 y: {actual.Top}  (0이면 패널 끝에 붙음)\r\n"
+            + $"화면 폭 대비: {share:P1}  (macOS 기준 {NotchMetrics.MacWidthShareOfScreen:P1})\r\n"
+            + $"설정 파일: {_settingsStore.Path}";
+    }
+
+    private static void OpenUrl(Uri uri)
+    {
+        try
         {
-            item.Checked = item.Tag is OverlapMode mode && mode == _bar.Overlap;
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageBox.Show(
+                $"브라우저에서 링크를 열지 못했습니다.\n\n{exception.Message}",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
     }
 
-    /// <summary>The band only exists while the edge is reserved, so the menu says so rather than doing nothing.</summary>
-    private void RefreshBandChecks(ToolStripMenuItem band)
-    {
-        band.Enabled = _bar.Overlap == OverlapMode.ReserveTopEdge;
-
-        foreach (var item in band.DropDownItems.OfType<ToolStripMenuItem>().SelectMany(g => g.DropDownItems.OfType<ToolStripMenuItem>()))
-        {
-            item.Checked = item.Tag switch
-            {
-                Color colour => colour.ToArgb() == _bar.Band.Colour.ToArgb(),
-                int percent => percent == _bar.Band.Opacity,
-                _ => false
-            };
-        }
-    }
-
-    private void OpenMenu()
+    private void OpenTrayMenu()
     {
         if (IconMenuOpener is not null)
         {
@@ -185,25 +456,7 @@ internal sealed class JkBarContext : ApplicationContext
             return;
         }
 
-        // Windows needs a foreground window of ours for the menu to dismiss on an outside click; the menu itself
-        // is the only one this app has, since the bar refuses activation.
         _tray.ContextMenuStrip?.Show(Cursor.Position);
-    }
-
-    private void ShowMeasurements()
-    {
-        var actual = _bar.ActualBounds();
-        var screen = _bar.LogicalScreenWidth();
-        var share = screen > 0 ? _bar.LogicalWidth / (double)screen : 0;
-
-        MessageBox.Show(
-            $"논리 너비: {_bar.LogicalWidth}\n"
-            + $"실제 픽셀: {actual.Width} x {actual.Height}\n"
-            + $"창 상단 y: {actual.Top}  (0이면 패널 끝에 붙음)\n"
-            + $"화면 폭 대비: {share:P1}  (macOS 기준 {NotchMetrics.MacWidthShareOfScreen:P1})",
-            "JKBar",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
     }
 
     private void Quit()
@@ -216,8 +469,13 @@ internal sealed class JkBarContext : ApplicationContext
     {
         if (disposing)
         {
+            _shutdown.Cancel();
+            _updateClock.Dispose();
+            _updates.Dispose();
+            _shutdown.Dispose();
             _tray.Dispose();
             TrayIconFactory.Destroy(_iconHandle);
+            _article.Dispose();
             _bar.Dispose();
         }
 

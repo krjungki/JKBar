@@ -11,6 +11,7 @@ namespace JKBar.Core.Metrics;
 public sealed class SystemMetricsCollector : IDisposable
 {
     private readonly DiskThroughputCounter _disk = new();
+    private readonly GpuUsageCounter _gpu = new();
     private MetricSample? _previous;
 
     public MetricsSnapshot Read()
@@ -18,9 +19,14 @@ public sealed class SystemMetricsCollector : IDisposable
         var current = Sample();
         var previous = _previous;
         _previous = current;
+        var gpu = _gpu.Read();
 
         // The first sample only establishes a baseline for the delta-based rates.
-        return previous is null ? MetricsSnapshot.Empty : RateMath.Compose(previous.Value, current);
+        return (previous is null ? MetricsSnapshot.Empty : RateMath.Compose(previous.Value, current)) with
+        {
+            GpuPercent = gpu,
+            GpuAvailable = _gpu.IsAvailable
+        };
     }
 
     /// <summary>
@@ -31,6 +37,7 @@ public sealed class SystemMetricsCollector : IDisposable
     {
         _previous = null;
         _disk.ResetBaseline();
+        _gpu.ResetBaseline();
     }
 
     private MetricSample Sample()
@@ -90,5 +97,9 @@ public sealed class SystemMetricsCollector : IDisposable
         return (received, sent);
     }
 
-    public void Dispose() => _disk.Dispose();
+    public void Dispose()
+    {
+        _disk.Dispose();
+        _gpu.Dispose();
+    }
 }

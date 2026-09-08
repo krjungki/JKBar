@@ -1,39 +1,60 @@
 // Turns a metrics snapshot into band readouts.
-using System.Drawing;
 using JKBar.Core.Metrics;
 
 namespace JKBar.Core.Presentation;
 
 public static class MetricsSource
 {
-    // Mid-saturation so they stay legible whether the band ends up light or dark.
-    private static readonly Color Cpu = Color.FromArgb(47, 128, 237);
-    private static readonly Color Memory = Color.FromArgb(226, 131, 59);
-    private static readonly Color Disk = Color.FromArgb(155, 111, 208);
-    private static readonly Color Network = Color.FromArgb(47, 163, 124);
-
     /// <summary>In display order, left to right.</summary>
-    public static IReadOnlyList<BandItem> Items(MetricsSnapshot snapshot) =>
-    [
-        new BandItem("CPU", ByteRate.Percent(snapshot.CpuPercent), ByteRate.WidestPercent, Cpu),
-        new BandItem("RAM", ByteRate.Percent(snapshot.MemoryPercent), ByteRate.WidestPercent, Memory),
-        new BandItem(
-            "DISK",
-            [Rate(Down, snapshot.DiskReadBytesPerSecond), Rate(Up, snapshot.DiskWriteBytesPerSecond)],
-            Disk),
-        new BandItem(
+    /// <param name="trails">Recent load for the percentage readouts. Null when no graph style is in use.</param>
+    public static IReadOnlyList<BandItem> Items(MetricsSnapshot snapshot, MetricTrails? trails = null)
+    {
+        var items = new List<BandItem>
+        {
+            Percent("CPU", snapshot.CpuPercent, trails)
+        };
+
+        if (snapshot.GpuAvailable)
+        {
+            items.Add(Percent("GPU", snapshot.GpuPercent, trails));
+        }
+
+        items.Add(Percent("RAM", snapshot.MemoryPercent, trails));
+        items.Add(new BandItem(
+            string.Empty,
+            [Rate(snapshot.DiskReadBytesPerSecond), Rate(snapshot.DiskWriteBytesPerSecond)],
+            Layout: BandItemLayout.IndicatorRows,
+            Kind: BandItemKind.Disk));
+        items.Add(new BandItem(
             "NET",
-            [Rate(Down, snapshot.NetworkInBytesPerSecond), Rate(Up, snapshot.NetworkOutBytesPerSecond)],
-            Network)
-    ];
+            [Rate(snapshot.NetworkOutBytesPerSecond), Rate(snapshot.NetworkInBytesPerSecond)],
+            Layout: BandItemLayout.RateRows,
+            Kind: BandItemKind.Network));
+
+        return items;
+    }
 
     /// <summary>What the readouts would say, so an unchanged band is not repainted at full screen width.</summary>
     public static string Signature(MetricsSnapshot snapshot) =>
         string.Join('|', Items(snapshot).SelectMany(item => item.Values).Select(value => value.Text));
 
-    private const string Down = "\u2193";
-    private const string Up = "\u2191";
+    private static BandItem Percent(string label, double value, MetricTrails? trails)
+    {
+        var kind = label switch
+        {
+            "CPU" => BandItemKind.Cpu,
+            "GPU" => BandItemKind.Gpu,
+            _ => BandItemKind.Memory
+        };
 
-    private static BandValue Rate(string arrow, double bytesPerSecond) =>
-        new(arrow + ByteRate.PerSecond(bytesPerSecond), arrow + ByteRate.WidestRate);
+        return new BandItem(
+            label,
+            [new BandValue(ByteRate.Percent(value), ByteRate.WidestPercent)],
+            Layout: BandItemLayout.StackedPercent,
+            Kind: kind,
+            Trail: trails?.For(kind));
+    }
+
+    private static BandValue Rate(double bytesPerSecond) =>
+        new(ByteRate.PerSecond(bytesPerSecond), ByteRate.WidestRate);
 }

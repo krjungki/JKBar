@@ -3,19 +3,28 @@
 macOS 노치를 흉내 낸 Windows 상단 표시 바. 화면 위쪽에 노치 모양 창을 띄우고 그 안에 아이콘, 숫자, 텍스트를
 개별 항목으로 구성해 상시 표시하거나 알림으로 띄운다.
 
-Status: SCAFFOLD. 아직 실행 가능한 산출물이 없다. 정본 계획은
+Status: PROTOTYPE. 실행 가능한 Windows 프로토타입이 있으며 정본 계획은
 [`.appdev/plans/20260903_appdev_JKBar.md`](../../.appdev/plans/20260903_appdev_JKBar.md)이다.
+
+## Install
+
+1. [Releases](https://github.com/krjungki/JKBar/releases)에서 zip을 받는다.
+2. **파일 속성에서 "차단 해제"를 체크한다.** 인터넷에서 받은 서명 없는 실행 파일이라 이 단계를 건너뛰면
+   SmartScreen이 실행을 막는다. PowerShell이면 `Unblock-File .\JKBar-*.zip`.
+3. 원하는 폴더에 풀고 `JKBar.exe`를 실행한다.
+
+설정은 실행 파일과 같은 폴더의 `settings.json`에 저장된다. 폴더를 통째로 옮기면 설정이 따라간다.
 
 ## Platform Support
 
 | OS | Status | Architecture | Runtime | Artifact | Verification |
 |---|---|---|---|---|---|
-| Windows | not-targeted | — | — | — | 스캐폴드 단계다. 실행 가능한 산출물과 실기 검증 증거가 생기면 `supported`로 바꾸고 Plan의 `## Platform Verification`에 `PASS` 행을 남긴다. |
+| Windows | not-targeted | x64 | .NET 10 self-contained | single-file EXE | 프로토타입 스모크는 통과했지만 release security review, artifact hash와 최종 플랫폼 증거가 닫히지 않았다. |
 | macOS | not-targeted | — | — | — | Win32 레이어드 창과 트레이에 의존하는 Windows 전용 도구다. |
 | Linux | not-targeted | — | — | — | 같은 이유로 범위 밖이다. |
 
-Windows를 `supported`로 선언하지 않은 것은 의도적이다. 저장소 계약상 `supported`는 실제 OS 스모크와 artifact
-해시 증거를 요구하는데, 지금은 빌드할 소스가 없다.
+Windows를 `supported`로 선언하지 않은 것은 의도적이다. 저장소 계약상 `supported`는 release artifact의 실제 OS
+스모크와 해시 증거를 요구하며 현재 산출물은 개발 중인 프로토타입이다.
 
 ## 무엇을 만드는가
 
@@ -24,13 +33,26 @@ Windows를 `supported`로 선언하지 않은 것은 의도적이다. 저장소 
 - 표시되는 항목은 각각 독립된 구성요소다. 추가, 삭제, 순서 변경, 개별 설정이 가능하다.
 - 겹침 처리를 세 방식 중에서 고른다. 최상위 표시 / 상단 영역 예약 / 바탕화면 고정.
 - 시간·날짜와 시스템 수치를 내장 제공자로 표시한다.
-- 트레이 아이콘에서 설정을 열다.
-- 창은 클릭을 통과시킨다. 표시 전용이다.
+- CPU·GPU·RAM은 중앙에 모인 왼쪽 정렬 2행 백분율, NET은 `U 송신 / D 수신`, DISK는 라벨 없이
+	`R 읽기 / W 쓰기` 처리량을 압축 2행으로 표시한다. 방향 글자만 색으로 구분한다.
+- 사용자가 지정한 RSS/Atom 피드의 최신 제목과 현지 시각으로 바꾼 포스팅 시각을 왼쪽 띠에 표시하고,
+  클릭하면 원문을 연다.
+- 뉴스 표시 여부, 피드 주소, 갱신 주기와 기사 전환 주기를 로컬 설정에 저장한다.
+- 뉴스와 시스템 지표를 단색 Bold로 표시하며 글꼴, 스타일, 크기와 글자색을 설정해 저장한다.
+- 가독성을 위해 글자 그림자를 켜고 끕 수 있다.
+- CPU·GPU·RAM·DISK·NET·시계를 개별적으로 켜고 끄거나 순서를 바꾸며 설정을 저장한다.
+- 설정의 `프로세스 리스트`에 이름과 실행 파일 경로를 등록하면, 그 프로그램이 실행 중일 때만 노치와 CPU 사이에
+  아이콘이 나타나 실행 여부를 알려 준다. 아이콘을 누르면 그 프로그램의 창을 맨 앞으로 가져온다.
+- 평상시 노치는 비우기, 날짜·시간, 픽셀 동물(개·고양이·팬더) 중 선택한다. 동물은 노치 안에서 걷고 쉬며,
+  알림과 재생 정보가 우선한다. 설정 → 기본 → 평상시 노치에서 바꿀 수 있다.
+- 트레이 아이콘의 좌·우 클릭 메뉴에서 현재 버전을 확인하고 통합 설정 창을 열거나 앱을 종료한다.
+- 뉴스 제목만 클릭할 수 있고 빈 띠와 나머지 표면은 클릭을 통과시킨다.
+- 전체화면 앱이 같은 화면을 차지하면 노치와 띠를 숨기고 측정도 멈춘다. 기본 켬이며 설정에서 끌 수 있다.
 
 ## 범위 밖
 
 - **Windows 알림 읽기.** 해당 API가 패키지 ID를 요구해 포터블 배포가 깨지므로 범위에서 제외했다.
-- 항목 클릭으로 동작을 실행하는 기능.
+- 날씨, VPN 판별, 배터리 잔량, 집중 타이머와 외부 프로그램용 로컬 알림.
 - macOS, Linux 지원.
 
 ## 시스템 수치 제공자
@@ -40,23 +62,68 @@ JKMon의 수집기를 **이식**해 쓴다. 저장소를 합치거나 라이브�
 
 ## Prerequisites
 
-- Windows 11 x64
+- Windows 11 x64 (앱은 Windows 10 build 19041을 하한으로 빌드한다. 미디어 세션 API가 그 버전부터 있다.)
 - .NET 10 SDK (`C:\Program Files\dotnet`)
 
 ## Build / Test / Run
 
-소스가 아직 없다. 스캐폴드가 채워지면 이 절에 restore, build, test, run, package, smoke 명령을 그대로 복사해
-실행할 수 있게 기록한다.
+작업 디렉터리는 `packages/JKBar/`다.
+
+```powershell
+dotnet build JKBar.slnx -c Release
+dotnet test JKBar.slnx -c Release
+dotnet publish src\JKBar.App\JKBar.App.csproj -c Release -o dist\win-x64
+.\dist\win-x64\JKBar.exe
+```
+
+릴리스 묶음은 `tools\pack-release.ps1`이 만든다. `Directory.Build.props`의 `Version`을 정본으로 읽어
+`releases\jkbar-<버전>\`에 zip, `SHA256SUMS.txt`, `version.json`을 함께 낸다. 셋이 한 번에 나오므로 업데이터가
+읽는 매니페스트와 실제 파일이 어긋날 수 없다. 업로드는 하지 않는다.
+
+## Updates
+
+트레이 메뉴의 **업데이트 확인...** 으로 직접 확인하거나, 설정 기본 탭에서 매일/매주 자동 확인을 켜면 된다.
+**기본값은 꺼져 있다.** 켜면 앱이 이 저장소의 릴리스 페이지에서 버전 파일 하나를 읽는다. 식별자를 보내지 않는다.
+
+새 버전이 있으면 물어보고, 동의하면 이렇게 진행한다.
+
+1. 릴리스 zip을 임시 폴더로 내려받고 함께 공개된 SHA-256과 대조한다. **불일치하면 중단하고 설치본을 건드리지
+   않는다.** 압축을 푼 뒤 `JKBar.exe` 자체의 해시도 다시 확인한다.
+2. 앱을 종료한다. 응답하지 않으면 강제 종료한다.
+3. 릴리스가 실어 보내는 파일만 교체한다. `settings.json`과 `user_image_*.png`는 그대로 남는다.
+4. 재실행하고 임시 파일을 지운다. 교체가 실패하면 이전 파일로 되돌린다.
+
+앞 버전은 교체가 끝날 때까지 앱 폴더의 `.jkbar-previous`에 보관된다. 임시 폴더는 `JKBar.update.<버전>`이라는
+이름일 때만 지우므로 잘못된 인자로 다른 폴더를 지울 수 없다.
 
 ## Privacy
 
-로컬 전용이다. 수집한 값과 로그는 사용자 기기를 벗어나지 않는다. 앱이 읽는 것은 시스템 성능 수치와 시간뿐이며
-사용자 문서나 알림 본문은 읽지 않는다.
+시스템 성능 수치, 시간과 동기화 상태는 로컬에서만 처리한다. 뉴스가 켜져 있으면 사용자가 설정한 RSS/Atom 주소로
+HTTP 요청을 보내며 기본 주소는 `https://www.yna.co.kr/rss/news.xml`이다. 제목과 링크만 메모리에 유지하고 기사
+본문은 저장하지 않는다. 주식이 켜져 있고 등록한 종목이 있으면 네이버 금융
+(`ac.stock.naver.com`, `polling.finance.naver.com`)에 종목 이름 검색과 시세 조회 요청을 보낸다. 둘 다 네이버가
+문서로 공개한 API가 아니라 웹페이지용 내부 주소이므로 응답이 바뀌면 표시가 조용히 사라진다. 겹침, 띠 스타일,
+이미지 경로, 피드, 글꼴, 표시 항목, 표시할 모니터, 등록한 종목과 평상시 노치 설정은 실행 파일 옆
+`settings.json`에 저장한다. 그 폴더에 쓸 수 없으면 `%LOCALAPPDATA%\JKBar\settings.json`을 쓴다.
+사용 중인 경로는 설정의 진단 탭에 적힌다. 사용자 문서와 Windows 알림 본문은 읽지 않는다.
+
+사용자 이미지를 고르면 원본을 계속 참조하지 않는다. `settings.json`이 있는 폴더에
+`user_image_<시각>.png`로 복사하면서 띠가 그리는 크기(최대 512×128)로 줄여 저장하고, 설정에는 그 사본 경로를
+적는다. 원본을 옮기거나 지워도 띠는 그대로 나온다. 이미지를 바꾸면 이전 사본은 지운다.
+
+**배포물을 만들 때는 `settings.json`과 `user_image_*.png`를 반드시 제외한다.** 사용자의 사진과 이름이 들어갈 수
+있다. `tools\pack-release.ps1`이 이 둘을 지우고 묶는다.
+
+업데이트 확인을 켜면 `github.com`의 이 저장소 릴리스 페이지에서 `version.json`, `SHA256SUMS.txt`와 릴리스 zip만
+받는다. 계정이나 기기를 식별하는 값은 보내지 않으며, 보내는 것은 `JKBar/<버전>` User-Agent뿐이다.
 
 ## Known limitations
 
-- 스카폴드 단계라 동작하는 기능이 없다.
 - macOS 노치와 달리 Windows는 화면 상단을 예약해 주지 않는다. 겹침 처리 방식은 설정으로 고른다.
+- 뉴스는 상단 영역 예약 모드의 왼쪽 띠에서만 보인다.
+- GPU Engine 카운터를 제공하지 않는 Windows 환경에서는 GPU 항목을 숨긴다.
+- DISK 값은 저장 공간 사용률이 아니라 읽기·쓰기 처리량이다.
+- 주식 정보와 노치 알림 클릭 동작은 아직 구현되지 않았다.
 
 ## License
 

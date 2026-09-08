@@ -14,6 +14,15 @@ public class ClockSourceTests
         var item = ClockSource.Item(Noon, CultureInfo.InvariantCulture);
 
         Assert.Equal("12:34", Assert.Single(item.Values).Text);
+        Assert.Equal(BandItemKind.Clock, item.Kind);
+    }
+
+    [Fact]
+    public void LabelsTheDayInEnglishWithoutTheMonth()
+    {
+        var label = ClockSource.Item(Noon, new CultureInfo("ko-KR")).Label;
+
+        Assert.Equal("Thu 3", label);
     }
 
     /// <summary>

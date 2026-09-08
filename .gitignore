@@ -14,6 +14,7 @@ TestResults/
 # Runtime state must remain outside the source tree
 logs/
 settings.local.json
+user_image_*.png
 
 # Development notes stay local: they record this machine's hardware, folder names and design working state.
 docs/

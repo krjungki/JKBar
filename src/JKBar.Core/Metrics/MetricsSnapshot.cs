@@ -8,7 +8,9 @@ public readonly record struct MetricsSnapshot(
     double NetworkInBytesPerSecond,
     double NetworkOutBytesPerSecond,
     double DiskReadBytesPerSecond,
-    double DiskWriteBytesPerSecond)
+    double DiskWriteBytesPerSecond,
+    double GpuPercent = 0,
+    bool GpuAvailable = false)
 {
     public static MetricsSnapshot Empty => new(0, 0, 0, 0, 0, 0);
 }

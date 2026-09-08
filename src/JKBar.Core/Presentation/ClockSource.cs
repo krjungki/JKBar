@@ -5,13 +5,16 @@ namespace JKBar.Core.Presentation;
 
 public static class ClockSource
 {
-    private const string DateFormat = "ddd d MMM";
-
     public static BandItem Item(DateTimeOffset now, CultureInfo culture) =>
         new(
-            now.ToString(DateFormat, culture),
+            Date(now),
             [new BandValue(now.ToString("HH:mm", culture), "00:00")],
-            LabelTemplate: WidestDate(culture));
+            LabelTemplate: WidestDate(),
+            Kind: BandItemKind.Clock);
+
+    /// <summary>Weekday and day of month only; the month is left out to keep the band short.</summary>
+    public static string Date(DateTimeOffset now) =>
+        $"{EnglishDay(now.DayOfWeek)} {now.Day.ToString(CultureInfo.InvariantCulture)}";
 
     /// <summary>
     /// What the item would read. The band repaints a full-width surface, so it is worth knowing that nothing
@@ -22,17 +25,18 @@ public static class ClockSource
 
     /// <summary>
     /// The date is the only label here that changes, and it sits at the right-hand end where a width change would
-    /// push every other reading sideways. Built from the culture's longest names rather than today's.
+    /// push every other reading sideways. Built from the longest weekday name rather than today's.
     /// </summary>
-    private static string WidestDate(CultureInfo culture)
+    private static string WidestDate()
     {
-        var format = culture.DateTimeFormat;
-        var day = Longest(format.AbbreviatedDayNames);
-        var month = Longest(format.AbbreviatedMonthNames);
+        var day = CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames
+            .Where(name => name.Length > 0)
+            .OrderByDescending(name => name.Length)
+            .FirstOrDefault() ?? string.Empty;
 
-        return $"{day} 30 {month}";
+        return $"{day} 30";
     }
 
-    private static string Longest(IEnumerable<string> names) =>
-        names.Where(name => name.Length > 0).OrderByDescending(name => name.Length).FirstOrDefault() ?? string.Empty;
+    private static string EnglishDay(DayOfWeek day) =>
+        CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames[(int)day];
 }

@@ -5,7 +5,10 @@ using System.Drawing.Imaging;
 using JKBar.App.Interop;
 using JKBar.App.Rendering;
 using JKBar.Core.Layout;
+using JKBar.Core.News;
 using JKBar.Core.Presentation;
+using JKBar.Core.Settings;
+using JKBar.Core.Stocks;
 
 namespace JKBar.App;
 
@@ -14,15 +17,32 @@ internal sealed class AppBarReservation : Form
     private NotchGeometry.Rect _screen;
     private NotchGeometry.Rect _band;
     private NotchGeometry.Rect _notch;
+    private int _notchCornerRadius;
     private BandStyle _style = BandStyle.Default;
+    private BandTypographySettings _typography = new();
     private IReadOnlyList<BandItem> _items = [];
+    private IReadOnlyList<RunningProcess> _runningProcesses = [];
+    private NewsItem? _news;
+    private StockQuote? _quote;
+    private Rectangle _newsBounds;
+    private IReadOnlyList<ProcessIcon> _processIcons = [];
     private Image? _image;
+    private int _imageScalePercent = 100;
+    private string? _activeApp;
     private Bitmap? _surface;
     private int _height;
     private bool _registered;
 
     /// <summary>Raised after the band takes a new position, so the bar can put itself back above it.</summary>
     internal Action? Claimed;
+    internal Action<Rectangle>? NewsClicked;
+    internal Action<WatchedProcess>? ProcessClicked;
+
+    /// <summary>
+    /// The bar's window. An open alert reaches past the cutout the band stamps black, so the band has to stay
+    /// behind the bar for that overhang to keep its own colour.
+    /// </summary>
+    internal IntPtr Below;
 
     internal AppBarReservation()
     {
@@ -39,7 +59,6 @@ internal sealed class AppBarReservation : Form
             var parameters = base.CreateParams;
             parameters.ExStyle |= NotchWindowInterop.WsExLayered
                 | NotchWindowInterop.WsExToolWindow
-                | NotchWindowInterop.WsExTransparent
                 | NotchWindowInterop.WsExNoActivate;
 
             return parameters;
@@ -72,13 +91,38 @@ internal sealed class AppBarReservation : Form
         }
     }
 
+    internal void SetTypography(BandTypographySettings typography)
+    {
+        _typography = typography.Normalized();
+
+        if (_registered)
+        {
+            PaintBand();
+        }
+    }
+
     /// <param name="notch">The resting bar, in band coordinates. Using the resting size rather than the animated
     /// one keeps a full-width surface from being redrawn on every frame of an alert.</param>
-    internal void SetContent(Image? image, IReadOnlyList<BandItem> items, NotchGeometry.Rect notch)
+    internal void SetContent(
+        Image? image,
+        int imageScalePercent,
+        string? activeApp,
+        StockQuote? quote,
+        NewsItem? news,
+        IReadOnlyList<BandItem> items,
+        IReadOnlyList<RunningProcess> runningProcesses,
+        NotchGeometry.Rect notch,
+        int notchCornerRadius)
     {
         _image = image;
+        _imageScalePercent = imageScalePercent;
+        _activeApp = activeApp;
+        _quote = quote;
+        _news = news;
         _items = items;
+        _runningProcesses = runningProcesses;
         _notch = notch;
+        _notchCornerRadius = notchCornerRadius;
 
         if (_registered)
         {
@@ -123,6 +167,18 @@ internal sealed class AppBarReservation : Form
         }
     }
 
+    /// <summary>
+    /// Hides the band while keeping the reservation. Giving it up would hand the strip back to the desktop and
+    /// shuffle every maximised window, which is not what hiding for a full-screen app should cost.
+    /// </summary>
+    internal void Suspend()
+    {
+        if (Visible)
+        {
+            Hide();
+        }
+    }
+
     private void Claim()
     {
         _band = AppBarInterop.Claim(Handle, _screen, _height);
@@ -149,7 +205,23 @@ internal sealed class AppBarReservation : Form
 
         using (var graphics = Graphics.FromImage(_surface))
         {
-            BandRenderer.Paint(graphics, _surface.Size, _notch, _style, _image, _items);
+            var areas = BandRenderer.Paint(
+                graphics,
+                _surface.Size,
+                _notch,
+                _notchCornerRadius,
+                _style,
+                _typography,
+                _image,
+                _imageScalePercent,
+                _activeApp,
+                _quote,
+                _news,
+                _items,
+                _runningProcesses);
+
+            _newsBounds = areas.News;
+            _processIcons = areas.ProcessIcons;
         }
 
         NotchWindowInterop.PushLayeredSurface(Handle, _surface, _band.Left, _band.Top);
@@ -157,6 +229,24 @@ internal sealed class AppBarReservation : Form
 
     protected override void WndProc(ref Message m)
     {
+        const int wmNcHitTest = 0x0084;
+        const int htTransparent = -1;
+        const int htClient = 1;
+
+        if (m.Msg == NotchWindowInterop.WmWindowPosChanging && Below != IntPtr.Zero)
+        {
+            NotchWindowInterop.PinBehind(m.LParam, Below);
+        }
+
+        if (m.Msg == wmNcHitTest)
+        {
+            var screenPoint = new Point((short)(m.LParam.ToInt64() & 0xffff), (short)(m.LParam.ToInt64() >> 16));
+            var client = PointToClient(screenPoint);
+            var clickable = _newsBounds.Contains(client) || ProcessIconHitTest.At(_processIcons, client) is not null;
+            m.Result = clickable ? htClient : htTransparent;
+            return;
+        }
+
         // The shell moves appbars around when another one appears or the taskbar changes; the band has to be
         // re-claimed or it silently stops reserving anything.
         if (m.Msg == AppBarInterop.CallbackMessage
@@ -168,6 +258,34 @@ internal sealed class AppBarReservation : Form
         }
 
         base.WndProc(ref m);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        var clickable = _newsBounds.Contains(e.Location) || ProcessIconHitTest.At(_processIcons, e.Location) is not null;
+        Cursor = clickable ? Cursors.Hand : Cursors.Default;
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+
+        if (e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        if (ProcessIconHitTest.At(_processIcons, e.Location) is { } process)
+        {
+            ProcessClicked?.Invoke(process);
+            return;
+        }
+
+        if (_news is not null && _newsBounds.Contains(e.Location))
+        {
+            NewsClicked?.Invoke(RectangleToScreen(_newsBounds));
+        }
     }
 
     protected override void Dispose(bool disposing)
