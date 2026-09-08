@@ -54,7 +54,7 @@ internal static class BandRenderer
     private const float GraphShareOfHeight = 0.95f;
 
     /// <summary>How tall the reading above a chart is set, as a share of the band. The chart takes what is left.</summary>
-    private const float GraphValueShareOfHeight = 0.28f;
+    private const float GraphValueShareOfHeight = 0.32f;
 
     /// <summary>How far down the next stacked letter starts, in line heights.</summary>
     private const float LetterStep = 0.72f;
@@ -727,7 +727,7 @@ internal static class BandRenderer
     /// <summary>The chart keeps a hair of clearance so its outline never touches the band's edges.</summary>
     private static RectangleF Plot(RectangleF area)
     {
-        var inset = Math.Max(1f, area.Height * 0.17f);
+        var inset = Math.Max(1f, area.Height * 0.13f);
         return RectangleF.Inflate(area, 0, -inset);
     }
 
