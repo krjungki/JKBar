@@ -62,7 +62,8 @@ public static class NaverStockParser
                 code,
                 name.Length == 0 ? code : name,
                 price,
-                Text(item, "fluctuationsRatio"),
+                // Naver signs a fall, and the band already draws an arrow, so the sign is dropped here.
+                Text(item, "fluctuationsRatio").TrimStart('+', '-'),
                 Direction(item)));
         }
 

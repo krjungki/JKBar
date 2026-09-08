@@ -75,6 +75,19 @@ public sealed class NaverStockParserTests
     }
 
     [Fact]
+    public void LeavesTheSignToTheArrow()
+    {
+        // Naver signs a fall, and the band draws an arrow beside it, so `▼-0.89%` would say it twice.
+        var quotes = NaverStockParser.Quotes("""
+            {"datas":[{"itemCode":"005380","stockName":"현대차","closePrice":"389,500",
+             "compareToPreviousPrice":{"name":"FALLING"},"fluctuationsRatio":"-0.89"}]}
+            """);
+
+        Assert.Equal("0.89", quotes[0].ChangePercent);
+        Assert.Equal("현대차 389,500 ▼0.89%", StockPresentation.Line(quotes[0]));
+    }
+
+    [Fact]
     public void KeepsTheNameTheUserRegistered()
     {
         var quotes = NaverStockParser.Quotes(
