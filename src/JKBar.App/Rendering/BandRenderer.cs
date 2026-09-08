@@ -38,6 +38,15 @@ internal static class BandRenderer
     /// </summary>
     private const string QuoteYardstick = "종목이름다섯 0,000,000 ▼00.00%";
 
+    /// <summary>
+    /// The stretch of the active application's name that keeps its room before the headline gets any. Written in
+    /// Korean because it has to hold on a screen scaled up far enough to make the font wide.
+    /// </summary>
+    private const string NameYardstick = "앱이름여섯자";
+
+    /// <summary>The shortest headline worth showing. Narrower than this the news is turned off, not left as a stub.</summary>
+    private const string NewsYardstick = "NEWS 00:00 [뉴스제목여덟자]";
+
     /// <summary>How much of the left slot the headline box takes. The rest is the logo and the active application.</summary>
     private const float NewsShareOfSlot = 0.55f;
 
@@ -103,8 +112,9 @@ internal static class BandRenderer
             ? new SolidBrush(ShadowColourFor(foregroundColour))
             : null;
         var ink = new Ink(foreground, shadow, foregroundColour);
-        var (newsBox, quoteBox) = LeftBoxes(g, slots.Left, valueFont, padding);
-        DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, imageRight, newsBox.Left);
+        var contentLeft = LeftContentStart(slots.Left, imageRight, padding);
+        var (newsBox, quoteBox, newsCramped) = LeftBoxes(g, slots.Left, activeApp, valueFont, padding, contentLeft);
+        DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, contentLeft, newsBox.Left);
         DrawQuote(g, quoteBox, quote, valueFont, ink);
         var newsBounds = DrawNews(g, newsBox, news, valueFont, ink);
         var itemsLeft = DrawItems(
@@ -118,7 +128,7 @@ internal static class BandRenderer
             padding);
         var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, ink);
 
-        return new BandHitAreas(newsBounds, processIcons);
+        return new BandHitAreas(newsBounds, processIcons, news is not null && newsCramped);
     }
 
     /// <summary>
@@ -173,7 +183,7 @@ internal static class BandRenderer
         Font font,
         Ink ink,
         int padding,
-        int imageRight,
+        int left,
         int limit)
     {
         if (string.IsNullOrWhiteSpace(name) || slot.Width <= 0)
@@ -181,7 +191,6 @@ internal static class BandRenderer
             return;
         }
 
-        var left = LeftContentStart(slot, imageRight, padding);
         var available = limit - (padding * LeftGroupGap) - left;
         if (available <= 0)
         {
@@ -196,33 +205,60 @@ internal static class BandRenderer
     /// <summary>
     /// The headline and the quote get boxes measured leftwards from the bar, so neither shifts when its own text
     /// changes length. The quote's box is as wide as the longest reading it can hold; the headline's follows the
-    /// screen, because that is what decides how much of a title fits.
+    /// screen, because that is what decides how much of a title fits. Neither the active application's name nor
+    /// the quote gives up room, so on a narrow slot the headline is the one that runs out.
     /// </summary>
-    private static (Rectangle News, Rectangle Quote) LeftBoxes(
+    /// <returns>Cramped is true when the screen cannot hold a readable headline at all, whatever is running.</returns>
+    private static (Rectangle News, Rectangle Quote, bool Cramped) LeftBoxes(
         Graphics g,
         NotchGeometry.Rect slot,
+        string? activeApp,
         Font font,
-        int padding)
+        int padding,
+        int contentLeft)
     {
         if (slot.Width <= 0)
         {
-            return (Rectangle.Empty, Rectangle.Empty);
+            return (Rectangle.Empty, Rectangle.Empty, false);
         }
 
         using var format = LeftTextFormat();
         var gap = padding * LeftGroupGap;
-        var quoteWidth = Math.Min(slot.Width, Measure(g, QuoteYardstick, font, format) + 2);
+
+        // Anchored at the bar so an empty box still tells the name how far right it may run.
+        var closed = new Rectangle(slot.Right - padding, slot.Top, 0, slot.Height);
+        var room = slot.Right - padding - contentLeft;
+        if (room <= 0)
+        {
+            return (closed, closed, true);
+        }
+
+        var quoteWidth = Math.Min(room, Measure(g, QuoteYardstick, font, format) + 2);
+        var nameWidth = string.IsNullOrWhiteSpace(activeApp)
+            ? 0
+            : Measure(g, activeApp, font, format) + 2 + gap;
+
+        // Judged against a yardstick rather than the name in the foreground, so switching windows cannot keep
+        // turning the news off and on.
+        var cramped = room - quoteWidth - gap - Measure(g, NameYardstick, font, format) - gap
+            < Measure(g, NewsYardstick, font, format);
+
         var newsWidth = Math.Clamp(
             (int)Math.Round(slot.Width * NewsShareOfSlot),
             0,
-            Math.Max(0, slot.Width - quoteWidth - gap - padding));
+            Math.Max(0, room - quoteWidth - gap - nameWidth));
+        if (newsWidth <= 0)
+        {
+            return (closed, new Rectangle(slot.Right - padding - quoteWidth, slot.Top, quoteWidth, slot.Height), cramped);
+        }
 
         // A gap off the bar as well, so the quote does not look stuck to the cutout.
         var quoteLeft = slot.Right - padding - quoteWidth;
 
         return (
             new Rectangle(quoteLeft - gap - newsWidth, slot.Top, newsWidth, slot.Height),
-            new Rectangle(quoteLeft, slot.Top, quoteWidth, slot.Height));
+            new Rectangle(quoteLeft, slot.Top, quoteWidth, slot.Height),
+            cramped);
     }
 
     /// <summary>
@@ -283,7 +319,9 @@ internal static class BandRenderer
 
         var measured = (int)Math.Ceiling(g.MeasureString(text, font, box.Width, format).Width) + 2;
         var width = Math.Min(box.Width, measured);
-        var bounds = new Rectangle(box.Left + ((box.Width - width) / 2), box.Top, width, box.Height);
+
+        // Held against the right edge so the headline reads as one group with the quote beside it.
+        var bounds = new Rectangle(box.Right - width, box.Top, width, box.Height);
         Write(g, text, font, format, ink, new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
 
         return bounds;

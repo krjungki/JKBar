@@ -54,6 +54,7 @@ internal sealed class JkBarContext : ApplicationContext
         _bar.Show();
         _bar.NewsClicked += ShowArticle;
         _bar.ProcessClicked += ProcessActivator.Activate;
+        _bar.NewsRoomExhausted += TurnNewsOffForRoom;
         _article.OpenInBrowser += OpenUrl;
         _article.LoadBounds = () => _settings.ArticleWindow;
         _article.SaveBounds = RememberArticleWindow;
@@ -127,6 +128,32 @@ internal sealed class JkBarContext : ApplicationContext
         {
             _applied = stamped.Normalized();
         }
+    }
+
+    /// <summary>
+    /// The left slot could not hold a headline beside the name and the quote. The news is switched off rather
+    /// than left as an unreadable stub, and the user is told so the choice does not look like a fault.
+    /// </summary>
+    private void TurnNewsOffForRoom()
+    {
+        if (!_settings.News.Enabled)
+        {
+            return;
+        }
+
+        var without = _settings with { News = _settings.News with { Enabled = false } };
+        if (!TrySaveSettings(without))
+        {
+            return;
+        }
+
+        ApplySettings(without, showImageError: false);
+        _bar.Notify(new NotchAlert(
+            AlertCategory.JkBar,
+            "jkbar.news.no.room",
+            "뉴스를 껐습니다",
+            "제목 자리가 부족합니다. 글꼴을 줄인 뒤 다시 켜세요.",
+            AlertSeverity.Warning));
     }
 
     /// <summary>
@@ -215,6 +242,13 @@ internal sealed class JkBarContext : ApplicationContext
         }
 
         var updated = dialog.Settings.Normalized();
+
+        // A check that finished while the window was open must not be undone by the snapshot the window started from.
+        if (_settings.Update.LastCheckUtc > updated.Update.LastCheckUtc)
+        {
+            updated = updated with { Update = updated.Update with { LastCheckUtc = _settings.Update.LastCheckUtc } };
+        }
+
         if (TrySaveSettings(updated))
         {
             ApplySettings(updated, showImageError: true);

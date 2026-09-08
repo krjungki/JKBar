@@ -3,4 +3,8 @@ using JKBar.Core.Presentation;
 
 namespace JKBar.App.Rendering;
 
-internal readonly record struct BandHitAreas(Rectangle News, IReadOnlyList<ProcessIcon> ProcessIcons);
+/// <param name="NewsCramped">The slot is too narrow to hold a readable headline beside the name and the quote.</param>
+internal readonly record struct BandHitAreas(
+    Rectangle News,
+    IReadOnlyList<ProcessIcon> ProcessIcons,
+    bool NewsCramped);

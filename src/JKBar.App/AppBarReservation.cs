@@ -32,11 +32,15 @@ internal sealed class AppBarReservation : Form
     private Bitmap? _surface;
     private int _height;
     private bool _registered;
+    private bool _reportedNewsCramped;
 
     /// <summary>Raised after the band takes a new position, so the bar can put itself back above it.</summary>
     internal Action? Claimed;
     internal Action<Rectangle>? NewsClicked;
     internal Action<WatchedProcess>? ProcessClicked;
+
+    /// <summary>Raised once when the slot turns out to be too narrow for a headline.</summary>
+    internal Action? NewsRoomExhausted;
 
     /// <summary>
     /// The bar's window. An open alert reaches past the cutout the band stamps black, so the band has to stay
@@ -203,6 +207,7 @@ internal sealed class AppBarReservation : Form
             _surface = new Bitmap(_band.Width, _band.Height, PixelFormat.Format32bppArgb);
         }
 
+        bool cramped;
         using (var graphics = Graphics.FromImage(_surface))
         {
             var areas = BandRenderer.Paint(
@@ -222,9 +227,24 @@ internal sealed class AppBarReservation : Form
 
             _newsBounds = areas.News;
             _processIcons = areas.ProcessIcons;
+            cramped = areas.NewsCramped;
         }
 
         NotchWindowInterop.PushLayeredSurface(Handle, _surface, _band.Left, _band.Top);
+
+        if (!cramped)
+        {
+            _reportedNewsCramped = false;
+            return;
+        }
+
+        if (!_reportedNewsCramped)
+        {
+            _reportedNewsCramped = true;
+
+            // Turning the news off repaints the band, so it cannot happen inside this paint.
+            BeginInvoke(() => NewsRoomExhausted?.Invoke());
+        }
     }
 
     protected override void WndProc(ref Message m)

@@ -102,6 +102,9 @@ internal sealed class NotchForm : Form
 
     internal event Action<WatchedProcess>? ProcessClicked;
 
+    /// <summary>The left slot cannot hold a headline, so the caller decides what to do about the news.</summary>
+    internal event Action? NewsRoomExhausted;
+
     internal IReadOnlyList<NewsItem> NewsItems => _newsItems;
 
     internal NotchForm()
@@ -141,6 +144,7 @@ internal sealed class NotchForm : Form
         _reservation.Claimed += () => NotchWindowInterop.RaiseToTop(Handle);
         _reservation.NewsClicked += anchor => NewsClicked?.Invoke(anchor);
         _reservation.ProcessClicked += process => ProcessClicked?.Invoke(process);
+        _reservation.NewsRoomExhausted += () => NewsRoomExhausted?.Invoke();
     }
 
     /// <summary>
