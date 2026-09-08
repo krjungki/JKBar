@@ -71,6 +71,7 @@ internal sealed class NotchForm : Form
     private Image? _image;
     private int _imageScalePercent = 100;
     private string _contentSignature = string.Empty;
+    private MetricsSnapshot _snapshot = MetricsSnapshot.Empty;
     private NotchMetrics _shown = NotchMetrics.MacBookPro14;
     private NotchMetrics _from = NotchMetrics.MacBookPro14;
     private NotchMetrics _to = NotchMetrics.MacBookPro14;
@@ -116,7 +117,7 @@ internal sealed class NotchForm : Form
 
         _animation.Tick += (_, _) => Advance();
         _dwell.Tick += (_, _) => AdvanceAlerts();
-        _content.Tick += (_, _) => RefreshContent(force: false);
+        _content.Tick += (_, _) => SampleMetrics();
         _activeApp.Tick += (_, _) =>
         {
             UpdateFullscreenSuppression();
@@ -340,6 +341,33 @@ internal sealed class NotchForm : Form
     }
 
     /// <summary>
+    /// The only place the counters are advanced. Every other repaint reuses the last reading, because sampling
+    /// again a few milliseconds later divides an unchanged counter by almost no time and reads as zero.
+    /// </summary>
+    private void SampleMetrics()
+    {
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        _snapshot = _metrics.Read();
+        _trails.Observe(_snapshot);
+
+        foreach (var alert in _thresholds.Observe(_snapshot))
+        {
+            Notify(alert);
+        }
+
+        if (_power.Observe() is { } powerAlert)
+        {
+            Notify(powerAlert);
+        }
+
+        RefreshContent(force: false);
+    }
+
+    /// <summary>
     /// Rebuilds the band's readouts. The surface is the full screen width, so it is only pushed when something
     /// visible actually changed rather than on every tick.
     /// </summary>
@@ -351,18 +379,7 @@ internal sealed class NotchForm : Form
         }
 
         var now = DateTimeOffset.Now;
-        var snapshot = _metrics.Read();
-        _trails.Observe(snapshot);
-
-        foreach (var alert in _thresholds.Observe(snapshot))
-        {
-            Notify(alert);
-        }
-
-        if (_power.Observe() is { } powerAlert)
-        {
-            Notify(powerAlert);
-        }
+        var snapshot = _snapshot;
 
         if (_overlap != OverlapMode.ReserveTopEdge)
         {
