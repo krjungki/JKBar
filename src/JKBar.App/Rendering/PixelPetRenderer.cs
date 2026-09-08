@@ -1,4 +1,4 @@
-// Draws crisp integer-sized pixels without textures, icon fonts or GPU resources.
+// Draws cached pixel poses at DPI-scaled dot boundaries without GPU resources.
 using System.Drawing.Drawing2D;
 using JKBar.Core.Layout;
 using JKBar.Core.Presentation;
@@ -10,19 +10,19 @@ internal static class PixelPetRenderer
 {
     internal static void Paint(Graphics graphics, NotchMetrics metrics, IdleNotchContent pet, TimeSpan elapsed)
     {
-        var sprite = PixelPetSprites.For(pet);
+        var pose = PixelPetAnimation.At(elapsed);
+        var sprite = PixelPetSprites.For(pet, pose);
         if (sprite.Count == 0 || !PixelPetLayout.Fits(metrics.Width, metrics.Height))
         {
             return;
         }
 
-        var pose = PixelPetAnimation.At(elapsed);
         var scale = PixelPetLayout.Scale(metrics.Width, metrics.Height);
         var pixel = Math.Max(1, (int)Math.Round(scale));
         var side = (int)Math.Round(PixelPetSprites.Height * scale);
         var climbing = pose.Action == PixelPetAction.Climb;
         var upright = climbing && pose.Elevation > 0.15;
-        var padding = Math.Max(4, metrics.BottomCornerRadius + 2);
+        var padding = Math.Min(Math.Max(4, metrics.BottomCornerRadius + 2), Math.Max(2, (metrics.Width - side) / 2));
         var travel = Math.Max(0, metrics.Width - padding * 2 - side);
         var left = padding + (int)Math.Round(travel * pose.Position);
         var floor = Math.Max(2, metrics.Height - side - 2);
@@ -32,22 +32,25 @@ internal static class PixelPetRenderer
             var wall = pose.Position < 0.5 ? 2 : metrics.Width - side - 2;
             left += (int)Math.Round((wall - left) * pose.Elevation);
         }
-        var bounce = pose.Action == PixelPetAction.Walk && pose.Step % 2 == 1 ? -1 : 0;
         using var fur = new SolidBrush(pet switch
         {
-            IdleNotchContent.Dog => Color.FromArgb(244, 212, 159),
-            IdleNotchContent.Cat => Color.FromArgb(223, 228, 239),
-            _ => Color.FromArgb(247, 247, 240)
+            IdleNotchContent.Dog => Color.FromArgb(230, 164, 117),
+            IdleNotchContent.Cat => Color.FromArgb(244, 202, 150),
+            _ => Color.FromArgb(238, 235, 225)
         });
         using var patch = new SolidBrush(pet switch
         {
-            IdleNotchContent.Dog => Color.FromArgb(168, 111, 70),
-            IdleNotchContent.Cat => Color.FromArgb(137, 153, 184),
-            _ => Color.FromArgb(65, 69, 80)
+            IdleNotchContent.Dog => Color.FromArgb(191, 91, 55),
+            IdleNotchContent.Cat => Color.FromArgb(194, 116, 61),
+            _ => Color.FromArgb(60, 68, 72)
         });
         using var pink = new SolidBrush(Color.FromArgb(244, 147, 164));
-        using var eyes = new SolidBrush(pet == IdleNotchContent.Panda ? Color.White : Color.FromArgb(36, 32, 40));
-        using var nose = new SolidBrush(Color.FromArgb(36, 32, 40));
+        using var highlight = new SolidBrush(Color.FromArgb(255, 252, 244));
+        using var outline = new SolidBrush(Color.FromArgb(39, 32, 43));
+        using var shadow = new SolidBrush(Color.FromArgb(183, 156, 183));
+        using var collar = new SolidBrush(Color.FromArgb(196, 40, 76));
+        using var charm = new SolidBrush(Color.FromArgb(255, 184, 105));
+        using var nose = new SolidBrush(Color.FromArgb(9, 12, 18));
         var state = graphics.Save();
         try
         {
@@ -58,8 +61,8 @@ internal static class PixelPetRenderer
 
             void Dot(int column, int row, Brush brush)
             {
-                var horizontal = (pose.FacingLeft ? PixelPetSprites.Width - 1 - column : column) + 1;
-                var vertical = row + bounce + 1;
+                var horizontal = pose.FacingLeft ? PixelPetSprites.Width - 1 - column : column;
+                var vertical = row;
                 if (upright)
                 {
                     (horizontal, vertical) = pose.FacingLeft
@@ -72,7 +75,8 @@ internal static class PixelPetRenderer
                 var y = top + (int)Math.Round(vertical * scale);
                 var edgeRight = left + (int)Math.Round((horizontal + 1) * scale);
                 var edgeBottom = top + (int)Math.Round((vertical + 1) * scale);
-                graphics.FillRectangle(brush, x, y, Math.Max(1, edgeRight - x), Math.Max(1, edgeBottom - y));
+                if (edgeRight > x && edgeBottom > y)
+                    graphics.FillRectangle(brush, x, y, edgeRight - x, edgeBottom - y);
             }
 
             for (var row = 0; row < sprite.Count; row++)
@@ -84,32 +88,17 @@ internal static class PixelPetRenderer
                         'f' => fur,
                         'b' => patch,
                         'p' => pink,
-                        'e' => eyes,
+                        'h' => highlight,
+                        'o' => outline,
+                        's' => shadow,
+                        'r' => collar,
+                        'c' => charm,
                         'n' => nose,
                         _ => null
                     };
                     if (brush is null) continue;
                     Dot(column, row, brush);
-                    if (sprite[row][column] == 'e' && pose.Blink) Dot(column - 1, row, brush);
                 }
-            }
-
-            var stride = pose.Resting || pose.Action == PixelPetAction.Jump ? 0 : pose.Step < 2 ? 1 : -1;
-            for (var foot = 0; foot < 2; foot++)
-            {
-                var column = 4 + foot * 5;
-                Dot(column, 14, patch);
-                Dot(column + (foot == 0 ? stride : -stride), 15, patch);
-                Dot(column + (foot == 0 ? stride : -stride) + 1, 15, patch);
-            }
-
-            var tail = pose.Step < 2 ? 0 : 1;
-            Dot(1, 9, patch);
-            Dot(0, 8 - tail, patch);
-            if (pet == IdleNotchContent.Cat)
-            {
-                Dot(0, 7 - tail, patch);
-                Dot(1, 6 - tail, patch);
             }
 
             if (pose.Action == PixelPetAction.Speak)

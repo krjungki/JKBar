@@ -10,7 +10,7 @@ public sealed class PixelPetLayoutTests
     public void DrawsSomethingWhereverItFits(int width, int height)
     {
         Assert.True(PixelPetLayout.Fits(width, height));
-        Assert.True(PixelPetLayout.Scale(width, height) >= 1);
+        Assert.True(PixelPetLayout.Scale(width, height) >= 0.5);
     }
 
     [Theory]
@@ -44,14 +44,14 @@ public sealed class PixelPetLayoutTests
     }
 
     [Fact]
-    public void IsBiggerThanTheWholePixelSizingItReplaced()
+    public void DetailedSpritesRemainVisibleAtSmallScales()
     {
         int[] heights = [32, 40, 48, 56];
 
         Assert.All(heights, height =>
         {
-            var whole = Math.Max(1, (height - Math.Max(8, height / 5)) / PixelPetSprites.Height);
-            Assert.True(PixelPetLayout.Scale(311, height) > whole);
+            var drawnHeight = PixelPetSprites.Height * PixelPetLayout.Scale(311, height);
+            Assert.InRange(drawnHeight, height * 0.78, height * 0.86);
         });
     }
 

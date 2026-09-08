@@ -35,11 +35,11 @@ public class PixelPetTests
     {
         var sprite = PixelPetSprites.For(content);
         Assert.NotEmpty(sprite);
-        Assert.True(sprite.Count < PixelPetSprites.Height - 2);
+        Assert.Equal(PixelPetSprites.Height, sprite.Count);
         Assert.All(sprite, row =>
         {
             Assert.Equal(PixelPetSprites.Width, row.Length);
-            Assert.All(row, pixel => Assert.Contains(pixel, ".fbpen"));
+            Assert.All(row, pixel => Assert.Contains(pixel, PixelPetSprites.Palette));
         });
     }
 
@@ -79,12 +79,17 @@ public class PixelPetTests
 
     [Theory]
     [InlineData(0.75)]
+    [InlineData(0.5)]
+    [InlineData(2.375)]
     [InlineData(2)]
     [InlineData(4)]
     [InlineData(7)]
     [InlineData(8.5)]
+    [InlineData(8.875)]
+    [InlineData(10)]
     [InlineData(12)]
     [InlineData(15)]
+    [InlineData(16)]
     [InlineData(18)]
     [InlineData(36)]
     public void ActionChangesDoNotTeleportThePet(double boundary)
@@ -104,5 +109,44 @@ public class PixelPetTests
         var messages = Enumerable.Range(0, 3).Select(variant => PixelPetAnimation.Message(pet, variant)).ToArray();
         Assert.Equal(3, messages.Distinct().Count());
         Assert.All(messages, message => Assert.InRange(message.Length, 1, 6));
+    }
+
+    [Theory]
+    [InlineData(IdleNotchContent.Dog)]
+    [InlineData(IdleNotchContent.Cat)]
+    [InlineData(IdleNotchContent.Panda)]
+    public void AllActionFramesAreCachedAndHaveValidPixels(IdleNotchContent pet)
+    {
+        foreach (var action in Enum.GetValues<PixelPetAction>())
+        for (var step = 0; step < 4; step++)
+        foreach (var blink in new[] { true, false })
+        {
+            var pose = new PixelPetPose(0.5, false, step, false, blink, action);
+            var frame = PixelPetSprites.For(pet, pose);
+            Assert.Same(frame, PixelPetSprites.For(pet, pose));
+            Assert.Equal(PixelPetSprites.Height, frame.Count);
+            Assert.All(frame, row =>
+            {
+                Assert.Equal(PixelPetSprites.Width, row.Length);
+                Assert.All(row, pixel => Assert.Contains(pixel, PixelPetSprites.Palette));
+            });
+            Assert.Contains('h', string.Concat(frame));
+            Assert.Contains('o', string.Concat(frame));
+            Assert.InRange(frame.Sum(row => row.Count(pixel => pixel != '.')), 150, 850);
+        }
+    }
+
+    [Theory]
+    [InlineData(IdleNotchContent.Dog)]
+    [InlineData(IdleNotchContent.Cat)]
+    [InlineData(IdleNotchContent.Panda)]
+    public void PosesChangeSilhouetteAndBlinkClosesEyes(IdleNotchContent pet)
+    {
+        var pose = new PixelPetPose(0.5, false, 0, false, false);
+        string Frame(PixelPetPose value) => string.Join('\n', PixelPetSprites.For(pet, value));
+        var actions = new[] { PixelPetAction.Rest, PixelPetAction.Walk, PixelPetAction.Crouch, PixelPetAction.Jump, PixelPetAction.Stretch };
+        Assert.Equal(actions.Length, actions.Select(action => Frame(pose with { Action = action })).Distinct().Count());
+        Assert.NotEqual(Frame(pose), Frame(pose with { Blink = true }));
+        Assert.True(Enumerable.Range(0, 4).Select(step => Frame(pose with { Step = step })).Distinct().Count() >= 3);
     }
 }

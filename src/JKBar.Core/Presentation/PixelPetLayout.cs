@@ -17,11 +17,11 @@ public static class PixelPetLayout
     {
         var headroom = Math.Max(3d, notchHeight * HeadroomShareOfHeight);
 
-        return Math.Max(1d, Math.Min(
+        return Math.Max(0.5d, Math.Min(
             (notchHeight - headroom) / PixelPetSprites.Height,
             (notchWidth - SideMargin) / (double)PixelPetSprites.Width));
     }
 
     public static bool Fits(int notchWidth, int notchHeight) =>
-        notchHeight >= PixelPetSprites.Height + 4 && notchWidth >= PixelPetSprites.Width + SideMargin;
+        notchHeight >= 22 && notchWidth >= PixelPetSprites.Width + SideMargin;
 }

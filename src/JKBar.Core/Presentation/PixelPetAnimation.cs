@@ -3,7 +3,7 @@ using JKBar.Core.Settings;
 
 namespace JKBar.Core.Presentation;
 
-public enum PixelPetAction { Walk, Jump, Climb, Speak, Rest }
+public enum PixelPetAction { Walk, Jump, Climb, Speak, Rest, Run, Crouch, Land, Stretch }
 
 public readonly record struct PixelPetPose(
     double Position, bool FacingLeft, int Step, bool Resting, bool Blink,
@@ -45,11 +45,31 @@ public static class PixelPetAnimation
             action = PixelPetAction.Jump;
             elevation = Arc((leg - hopStart) / 1.25);
         }
+        else if (leg >= hopStart - 0.25 && leg < hopStart)
+        {
+            action = PixelPetAction.Crouch;
+        }
+        else if (leg >= hopStart + 1.25 && leg < hopStart + 1.625 || leg >= 8.5 && leg < 8.875)
+        {
+            action = PixelPetAction.Land;
+        }
+        else if (action == PixelPetAction.Walk && leg < 10)
+        {
+            action = PixelPetAction.Run;
+        }
+        else if (leg >= 15 && leg < 16)
+        {
+            action = PixelPetAction.Stretch;
+        }
         var resting = action is PixelPetAction.Rest or PixelPetAction.Speak;
+        var jumpProgress = leg < 4 ? (leg - hopStart) / 1.25 : (leg - 7) / 1.5;
+        var step = action == PixelPetAction.Jump
+            ? Math.Clamp((int)(jumpProgress * 4), 0, 3)
+            : (int)(seconds * (resting ? 2 : action == PixelPetAction.Run ? 12 : 8) % 4);
         return new PixelPetPose(
             leftWall ? 1 - position : position,
             leg >= 8.5 ? !leftWall : leftWall,
-            resting ? 0 : (int)(seconds * 8 % 4),
+            step,
             resting,
             resting && leg % 1.5 < 0.25,
             action,
