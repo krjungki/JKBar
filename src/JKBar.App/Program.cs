@@ -1,5 +1,6 @@
 // Process entry point.
 using System.Windows.Forms;
+using JKBar.App.Diagnostics;
 using JKBar.App.Update;
 
 namespace JKBar.App;
@@ -18,6 +19,7 @@ internal static class Program
         UpdateDownloader.TryDelete(UpdateArguments.CleanupTarget(arguments));
 
         ApplicationConfiguration.Initialize();
+        CrashLog.Install();
         Application.Run(new JkBarContext());
 
         return 0;

@@ -33,8 +33,9 @@ New-Item -ItemType Directory -Path $staging | Out-Null
 & dotnet publish (Join-Path $repo 'src\JKBar.App\JKBar.App.csproj') -c Release -o $staging --nologo
 if ($LASTEXITCODE -ne 0) { throw "publish 실패" }
 
-# Never ship a developer's own settings or a stray staging folder.
+# Never ship a developer's own settings, fault log or a stray staging folder.
 Get-ChildItem $staging -Filter 'settings.json' | Remove-Item -Force
+Get-ChildItem $staging -Filter 'errors.log' | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem $staging -Filter 'user_image_*' | Remove-Item -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $repo 'LICENSE') $staging
 Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.txt') $staging
