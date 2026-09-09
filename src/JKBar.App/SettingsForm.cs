@@ -142,6 +142,7 @@ internal sealed class SettingsForm : Form
     private Color _selectedBandColour;
     private Color _selectedGraphColour;
     private bool _suspendPreview = true;
+    private bool _loadingProcessSelection;
 
     /// <summary>Raised while editing so the bar shows the pending values before they are confirmed.</summary>
     internal event Action<JkBarSettings>? Preview;
@@ -664,10 +665,29 @@ internal sealed class SettingsForm : Form
                 return;
             }
 
-            _processName.Text = _processes.SelectedItems[0].Text;
-            _processPath.Text = _processes.SelectedItems[0].SubItems[1].Text;
-            _processNameOnly.Checked = _processPath.Text.Length == 0;
-            _processCountVisible.Checked = _processes.SelectedItems[0].SubItems[3].Text == "표시";
+            _loadingProcessSelection = true;
+            try
+            {
+                _processName.Text = _processes.SelectedItems[0].Text;
+                _processPath.Text = _processes.SelectedItems[0].SubItems[1].Text;
+                _processNameOnly.Checked = _processPath.Text.Length == 0;
+                _processCountVisible.Checked = _processes.SelectedItems[0].SubItems[3].Text == "표시";
+            }
+            finally
+            {
+                _loadingProcessSelection = false;
+            }
+        };
+
+        _processCountVisible.CheckedChanged += (_, _) =>
+        {
+            if (_loadingProcessSelection || _processes.SelectedItems.Count != 1)
+            {
+                return;
+            }
+
+            _processes.SelectedItems[0].SubItems[3].Text = _processCountVisible.Checked ? "표시" : "숨김";
+            RaisePreview();
         };
 
         _processNameOnly.CheckedChanged += (_, _) =>
@@ -763,10 +783,17 @@ internal sealed class SettingsForm : Form
             existing.SubItems[3].Text = CountLabel(entry);
         }
 
+        foreach (var selected in _processes.SelectedItems.Cast<ListViewItem>().ToArray())
+        {
+            selected.Selected = false;
+        }
+
+        _loadingProcessSelection = true;
         _processName.Clear();
         _processPath.Clear();
         _processNameOnly.Checked = false;
         _processCountVisible.Checked = true;
+        _loadingProcessSelection = false;
         RaisePreview();
     }
 
