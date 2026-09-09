@@ -1,4 +1,4 @@
-// The bar window: click-through, per-pixel alpha, pushed to the desktop with UpdateLayeredWindow.
+// The bar window: per-pixel alpha, pushed to the desktop with UpdateLayeredWindow.
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -103,10 +103,14 @@ internal sealed class NotchForm : Form
 
     internal event Action<WatchedProcess>? ProcessClicked;
 
+    internal event Action? MenuRequested;
+
     /// <summary>The left slot cannot hold a headline, so the caller decides what to do about the news.</summary>
     internal event Action? NewsRoomExhausted;
 
     internal IReadOnlyList<NewsItem> NewsItems => _newsItems;
+
+    internal IReadOnlyList<SyncProviderSnapshot> SyncSnapshots => _syncPoller.Snapshots;
 
     internal NotchForm()
     {
@@ -158,7 +162,6 @@ internal sealed class NotchForm : Form
         {
             var parameters = base.CreateParams;
             parameters.ExStyle |= NotchWindowInterop.WsExLayered
-                | NotchWindowInterop.WsExTransparent
                 | NotchWindowInterop.WsExToolWindow
                 | NotchWindowInterop.WsExNoActivate;
 
@@ -604,7 +607,7 @@ internal sealed class NotchForm : Form
     {
         _monitorDeviceName = deviceName;
         ApplyOverlap();
-        Redraw();
+        Settle();
     }
 
     /// <summary>
@@ -901,8 +904,26 @@ internal sealed class NotchForm : Form
 
     protected override void WndProc(ref Message m)
     {
+        const int wmNcHitTest = 0x0084;
+        const int htTransparent = -1;
+        const int htClient = 1;
+
         switch (m.Msg)
         {
+            case wmNcHitTest:
+                var screenPoint = new Point((short)(m.LParam.ToInt64() & 0xffff), (short)(m.LParam.ToInt64() >> 16));
+                var clientPoint = PointToClient(screenPoint);
+                var scaled = Scaled();
+                using (var silhouette = NotchRenderer.Silhouette(
+                           scaled.Width,
+                           scaled.Height,
+                           scaled.BottomCornerRadius))
+                {
+                    m.Result = silhouette.IsVisible(clientPoint) ? htClient : htTransparent;
+                }
+
+                return;
+
             case NotchWindowInterop.WmDpiChanged:
             case NotchWindowInterop.WmDisplayChange:
             case NotchWindowInterop.WmSettingChange:
@@ -933,6 +954,15 @@ internal sealed class NotchForm : Form
         }
 
         base.WndProc(ref m);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button == MouseButtons.Right)
+        {
+            MenuRequested?.Invoke();
+        }
     }
 
     private void AnnounceVolumeChange(long change, IntPtr broadcast)

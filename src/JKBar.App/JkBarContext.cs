@@ -55,6 +55,7 @@ internal sealed class JkBarContext : ApplicationContext
         _bar.Show();
         _bar.NewsClicked += ShowArticle;
         _bar.ProcessClicked += ProcessActivator.Activate;
+        _bar.MenuRequested += OpenNotchMenu;
         _bar.NewsRoomExhausted += TurnNewsOffForRoom;
         _article.OpenInBrowser += OpenUrl;
         _article.LoadBounds = () => _settings.ArticleWindow;
@@ -224,6 +225,7 @@ internal sealed class JkBarContext : ApplicationContext
     {
         using var dialog = new SettingsForm(
             _settings,
+            _bar.SyncSnapshots,
             PreviewAlert,
             MeasurementText,
             ImportBandImage);
@@ -501,6 +503,8 @@ internal sealed class JkBarContext : ApplicationContext
 
         _tray.ContextMenuStrip?.Show(Cursor.Position);
     }
+
+    private void OpenNotchMenu() => _tray.ContextMenuStrip?.Show(Cursor.Position);
 
     private void Quit()
     {

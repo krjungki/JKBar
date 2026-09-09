@@ -47,7 +47,9 @@ public enum NotchScene
     None,
     SummerField,
     SunsetSky,
-    CloudHill
+    CloudHill,
+    WillowLake,
+    TropicalCoast
 }
 
 public sealed record NotchSettings

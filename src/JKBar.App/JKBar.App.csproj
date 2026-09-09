@@ -49,6 +49,8 @@
     <EmbeddedResource Include="Assets\scene-summer-field.png" LogicalName="JKBar.App.Assets.scene-summer-field.png" />
     <EmbeddedResource Include="Assets\scene-sunset-sky.png" LogicalName="JKBar.App.Assets.scene-sunset-sky.png" />
     <EmbeddedResource Include="Assets\scene-cloud-hill.png" LogicalName="JKBar.App.Assets.scene-cloud-hill.png" />
+    <EmbeddedResource Include="Assets\scene-willow-lake.png" LogicalName="JKBar.App.Assets.scene-willow-lake.png" />
+    <EmbeddedResource Include="Assets\scene-tropical-coast.png" LogicalName="JKBar.App.Assets.scene-tropical-coast.png" />
   </ItemGroup>
 
   <ItemGroup>

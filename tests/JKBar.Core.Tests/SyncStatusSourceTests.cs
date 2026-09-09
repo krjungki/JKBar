@@ -70,4 +70,18 @@ public class SyncStatusSourceTests
 
         Assert.Equal(["G", "S"], items.Select(item => item.Label));
     }
+
+    [Fact]
+    public void MarksOnlyExplicitlyAbsentProvidersAsUnavailable()
+    {
+        var unavailable = SyncStatusSource.UnavailableKinds(
+        [
+            new SyncProviderSnapshot(SyncProviderCatalog.GlobalSecureAccess, 'G', SyncState.Absent, ""),
+            new SyncProviderSnapshot(SyncProviderCatalog.OneDrive, 'O', SyncState.Unknown, ""),
+            new SyncProviderSnapshot("future", 'F', SyncState.Absent, "")
+        ]);
+
+        Assert.Equal([BandItemKind.GlobalSecureAccess], unavailable);
+        Assert.Empty(SyncStatusSource.UnavailableKinds([]));
+    }
 }

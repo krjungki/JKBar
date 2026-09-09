@@ -7,6 +7,7 @@ using JKBar.Core.Layout;
 using JKBar.Core.Presentation;
 using JKBar.Core.Settings;
 using JKBar.Core.Stocks;
+using JKBar.Core.Sync;
 using JKBar.Core.Update;
 
 namespace JKBar.App;
@@ -66,15 +67,21 @@ internal sealed class SettingsForm : Form
     private readonly Label _alertFontSizeValue = new() { AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly TrackBar _imageScale = new() { Minimum = 6, Maximum = 20, TickFrequency = 2, Width = 220 };
     private readonly Label _imageScaleValue = new() { AutoSize = true, Anchor = AnchorStyles.Left };
-    private readonly CheckedListBox _items = new()
+    private readonly ListView _items = new()
     {
         Dock = DockStyle.Fill,
-        CheckOnClick = true,
-        IntegralHeight = false
+        View = View.Details,
+        CheckBoxes = true,
+        HeaderStyle = ColumnHeaderStyle.None,
+        FullRowSelect = true,
+        HideSelection = false,
+        MultiSelect = false,
+        ShowItemToolTips = true
     };
 
     private readonly ComboBox _percentStyle = DropDown();
     private readonly Dictionary<BandItemKind, BandPercentStyle> _percentStyles = [];
+    private readonly Dictionary<BandItemKind, bool> _itemVisibility = [];
     private readonly CheckBox _newsEnabled = new() { Text = "뉴스 표시", AutoSize = true };
     private readonly TextBox _feedUrl = new() { Dock = DockStyle.Fill };
     private readonly NumericUpDown _refreshMinutes = new() { Minimum = 5, Maximum = 1440, Width = 90 };
@@ -121,6 +128,7 @@ internal sealed class SettingsForm : Form
     private readonly Func<string> _measurements;
     private readonly Func<string, string?> _importImage;
     private readonly JkBarSettings _original;
+    private readonly IReadOnlySet<BandItemKind> _unavailableItems;
 
     private BandTypographySettings _typography;
     private Color _selectedBandColour;
@@ -132,6 +140,7 @@ internal sealed class SettingsForm : Form
 
     internal SettingsForm(
         JkBarSettings settings,
+        IReadOnlyList<SyncProviderSnapshot> syncSnapshots,
         Action previewAlert,
         Func<string> measurements,
         Func<string, string?> importImage)
@@ -142,6 +151,7 @@ internal sealed class SettingsForm : Form
 
         var normalized = settings.Normalized();
         _original = normalized;
+        _unavailableItems = SyncStatusSource.UnavailableKinds(syncSnapshots);
         _typography = normalized.Typography;
         _selectedBandColour = Color.FromArgb(normalized.Appearance.BandColourArgb);
         _selectedGraphColour = Color.FromArgb(
@@ -170,9 +180,11 @@ internal sealed class SettingsForm : Form
         SelectOption(_idleNotch, normalized.Notch.IdleContent);
 
         AddOption(_notchScene, "없음", NotchScene.None);
-        AddOption(_notchScene, "여름 들판", NotchScene.SummerField);
-        AddOption(_notchScene, "노을 하늘", NotchScene.SunsetSky);
-        AddOption(_notchScene, "구름 언덕", NotchScene.CloudHill);
+        AddOption(_notchScene, "푸른 들판", NotchScene.SummerField);
+        AddOption(_notchScene, "노을 들판", NotchScene.SunsetSky);
+        AddOption(_notchScene, "고목 초원", NotchScene.CloudHill);
+        AddOption(_notchScene, "버드나무 호수", NotchScene.WillowLake);
+        AddOption(_notchScene, "열대 해변", NotchScene.TropicalCoast);
         SelectOption(_notchScene, normalized.Notch.Scene);
         UpdateSceneAvailability();
 
@@ -222,14 +234,26 @@ internal sealed class SettingsForm : Form
         _metricsRefresh.Value = normalized.Behaviour.MetricsRefreshSeconds;
         UpdateFontSummary();
 
+        _items.Columns.Add(string.Empty);
+        _items.Resize += (_, _) => ResizeBandItemColumn();
         foreach (var kind in normalized.BandItems.Order)
         {
-            _items.Items.Add(new ItemEntry(kind, ItemLabels[kind]), normalized.BandItems.IsVisible(kind));
+            var unavailable = _unavailableItems.Contains(kind);
+            var visible = normalized.BandItems.IsVisible(kind);
+            _itemVisibility[kind] = visible;
+            _items.Items.Add(new ListViewItem(ItemLabels[kind])
+            {
+                Tag = kind,
+                Checked = visible && !unavailable,
+                ForeColor = unavailable ? SystemColors.GrayText : _items.ForeColor,
+                ToolTipText = unavailable ? "앱이 감지되지 않았습니다." : string.Empty
+            });
         }
         if (_items.Items.Count > 0)
         {
-            _items.SelectedIndex = 0;
+            _items.Items[0].Selected = true;
         }
+        ResizeBandItemColumn();
 
         foreach (var kind in BandItemsSettings.StyleableKinds)
         {
@@ -290,7 +314,17 @@ internal sealed class SettingsForm : Form
         _feedUrl.Validated += (_, _) => RaisePreview();
 
         // ItemCheck runs before the box records the new state, so the preview waits for the pending update.
-        _items.ItemCheck += (_, _) => BeginInvoke(RaisePreview);
+        _items.ItemCheck += (_, e) =>
+        {
+            if (IsUnavailable(e.Index))
+            {
+                e.NewValue = e.CurrentValue;
+                return;
+            }
+
+            _itemVisibility[ItemKind(_items.Items[e.Index])] = e.NewValue == CheckState.Checked;
+            BeginInvoke(RaisePreview);
+        };
         _items.SelectedIndexChanged += (_, _) => ShowPercentStyleOfSelection();
         _percentStyle.SelectedIndexChanged += (_, _) => TakePercentStyleForSelection();
 
@@ -302,6 +336,21 @@ internal sealed class SettingsForm : Form
         if (!_suspendPreview)
         {
             Preview?.Invoke(Settings);
+        }
+    }
+
+    private bool IsUnavailable(int index) =>
+        index >= 0
+        && index < _items.Items.Count
+        && _unavailableItems.Contains(ItemKind(_items.Items[index]));
+
+    private static BandItemKind ItemKind(ListViewItem item) => (BandItemKind)item.Tag!;
+
+    private void ResizeBandItemColumn()
+    {
+        if (_items.Columns.Count > 0)
+        {
+            _items.Columns[0].Width = Math.Max(1, _items.ClientSize.Width - 1);
         }
     }
 
@@ -1023,11 +1072,11 @@ internal sealed class SettingsForm : Form
 
     private BandItemsSettings ReadBandItems()
     {
-        var entries = _items.Items.Cast<ItemEntry>().ToArray();
+        var entries = _items.Items.Cast<ListViewItem>().Select(ItemKind).ToArray();
         return new BandItemsSettings
         {
-            Order = entries.Select(entry => entry.Kind).ToArray(),
-            Hidden = entries.Where((_, index) => !_items.GetItemChecked(index)).Select(entry => entry.Kind).ToArray(),
+            Order = entries,
+            Hidden = entries.Where(kind => !_itemVisibility[kind]).ToArray(),
             PercentStyles = _percentStyles
                 .Select(pair => new BandItemStyle { Kind = pair.Key, Style = pair.Value })
                 .ToArray(),
@@ -1062,23 +1111,22 @@ internal sealed class SettingsForm : Form
     }
 
     private BandItemKind? SelectedKind() =>
-        _items.SelectedItem is ItemEntry entry ? entry.Kind : null;
+        _items.SelectedItems.Count == 1 ? ItemKind(_items.SelectedItems[0]) : null;
 
     private void MoveSelected(int offset)
     {
-        var from = _items.SelectedIndex;
+        var from = _items.SelectedIndices.Count == 1 ? _items.SelectedIndices[0] : -1;
         var to = from + offset;
         if (from < 0 || to < 0 || to >= _items.Items.Count)
         {
             return;
         }
 
-        var entry = (ItemEntry)_items.Items[from];
-        var isChecked = _items.GetItemChecked(from);
+        var entry = _items.Items[from];
         _items.Items.RemoveAt(from);
         _items.Items.Insert(to, entry);
-        _items.SetItemChecked(to, isChecked);
-        _items.SelectedIndex = to;
+        entry.Selected = true;
+        entry.Focused = true;
         RaisePreview();
     }
 
@@ -1231,12 +1279,12 @@ internal sealed class SettingsForm : Form
 
         // A page only lays out once it has been shown, and the nested tabs only exist after their page has.
         for (var pass = 0; pass < 2; pass++)
-        foreach (var tab in tabs)
-        for (var page = 0; page < tab.TabPages.Count; page++)
-        {
-            tab.SelectedIndex = page;
-            tab.PerformLayout();
-        }
+            foreach (var tab in tabs)
+                for (var page = 0; page < tab.TabPages.Count; page++)
+                {
+                    tab.SelectedIndex = page;
+                    tab.PerformLayout();
+                }
 
         var shortfall = 0;
         foreach (var control in Descendants(this))
@@ -1291,11 +1339,6 @@ internal sealed class SettingsForm : Form
         combo.SelectedItem is Option<T> option ? option.Value : fallback;
 
     private sealed record Option<T>(string Label, T Value) where T : struct
-    {
-        public override string ToString() => Label;
-    }
-
-    private sealed record ItemEntry(BandItemKind Kind, string Label)
     {
         public override string ToString() => Label;
     }

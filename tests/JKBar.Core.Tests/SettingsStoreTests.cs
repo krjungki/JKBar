@@ -210,6 +210,8 @@ public class SettingsStoreTests : IDisposable
     {
         Assert.Equal(NotchScene.None, new NotchSettings { Scene = (NotchScene)99 }.Normalized().Scene);
         Assert.Equal(NotchScene.SunsetSky, new NotchSettings { Scene = NotchScene.SunsetSky }.Normalized().Scene);
+        Assert.Equal(NotchScene.WillowLake, new NotchSettings { Scene = NotchScene.WillowLake }.Normalized().Scene);
+        Assert.Equal(NotchScene.TropicalCoast, new NotchSettings { Scene = NotchScene.TropicalCoast }.Normalized().Scene);
     }
 
     [Fact]

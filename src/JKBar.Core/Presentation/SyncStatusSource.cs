@@ -57,4 +57,11 @@ public static class SyncStatusSource
         BandItemKind.GlobalSecureAccess => SyncProviderCatalog.GlobalSecureAccess,
         _ => null
     };
+
+    public static IReadOnlySet<BandItemKind> UnavailableKinds(IEnumerable<SyncProviderSnapshot> snapshots) =>
+        snapshots
+            .Where(snapshot => snapshot.State == SyncState.Absent)
+            .Select(snapshot => KindFor(snapshot.ProviderId))
+            .Where(kind => kind != BandItemKind.Custom)
+            .ToHashSet();
 }

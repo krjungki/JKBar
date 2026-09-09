@@ -48,7 +48,9 @@ internal static class NotchSceneRenderer
                  {
                      (NotchScene.SummerField, "JKBar.App.Assets.scene-summer-field.png"),
                      (NotchScene.SunsetSky, "JKBar.App.Assets.scene-sunset-sky.png"),
-                     (NotchScene.CloudHill, "JKBar.App.Assets.scene-cloud-hill.png")
+                     (NotchScene.CloudHill, "JKBar.App.Assets.scene-cloud-hill.png"),
+                     (NotchScene.WillowLake, "JKBar.App.Assets.scene-willow-lake.png"),
+                     (NotchScene.TropicalCoast, "JKBar.App.Assets.scene-tropical-coast.png")
                  })
         {
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource);
