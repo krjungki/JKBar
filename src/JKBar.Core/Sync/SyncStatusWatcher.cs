@@ -11,31 +11,30 @@ public sealed class SyncStatusWatcher
 
     private readonly Dictionary<string, BandItemBadge> _last = new(StringComparer.Ordinal);
 
-    /// <param name="isVisible">
-    /// A provider the user unchecked is forgotten rather than tracked, so turning it back on starts from a fresh
-    /// baseline instead of announcing whatever changed while it was out of sight.
+    /// <param name="allowsAlert">
+    /// Muted results are still tracked, so a separately enabled recovery or attention state can be announced next.
     /// </param>
     public IReadOnlyList<NotchAlert> Observe(
         IEnumerable<SyncProviderSnapshot> snapshots,
-        Func<BandItemKind, bool> isVisible)
+        Func<string, BandItemBadge, bool> allowsAlert)
     {
         var alerts = new List<NotchAlert>();
 
         foreach (var snapshot in snapshots)
         {
             var kind = SyncStatusSource.KindFor(snapshot.ProviderId);
-            if (!snapshot.IsVisible || kind == BandItemKind.Custom || !isVisible(kind))
+            var badge = SyncStatusSource.BadgeFor(snapshot.State);
+            if (!snapshot.IsVisible || kind == BandItemKind.Custom)
             {
                 _last.Remove(snapshot.ProviderId);
                 continue;
             }
 
-            var badge = SyncStatusSource.BadgeFor(snapshot.State);
             var known = _last.TryGetValue(snapshot.ProviderId, out var previous);
             _last[snapshot.ProviderId] = badge;
 
             // The first reading is the baseline; only a change is worth interrupting for.
-            if (!known || previous == badge)
+            if (!known || previous == badge || !allowsAlert(snapshot.ProviderId, badge))
             {
                 continue;
             }

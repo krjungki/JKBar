@@ -56,6 +56,7 @@ internal sealed class JkBarContext : ApplicationContext
         _bar.NewsClicked += ShowArticle;
         _bar.ProcessClicked += ProcessActivator.Activate;
         _bar.MenuRequested += OpenNotchMenu;
+        _bar.MonitorFellBackToPrimary += RememberPrimaryMonitorFallback;
         _bar.NewsRoomExhausted += TurnNewsOffForRoom;
         _article.OpenInBrowser += OpenUrl;
         _article.LoadBounds = () => _settings.ArticleWindow;
@@ -306,6 +307,11 @@ internal sealed class JkBarContext : ApplicationContext
             _bar.SetBandItems(normalized.BandItems);
         }
 
+        if (previous is null || !SyncAlertsMatch(previous.SyncAlerts, normalized.SyncAlerts))
+        {
+            _bar.SetSyncAlerts(normalized.SyncAlerts);
+        }
+
         if (previous is null || previous.Notch != normalized.Notch)
         {
             _bar.SetNotchSettings(normalized.Notch);
@@ -435,6 +441,10 @@ internal sealed class JkBarContext : ApplicationContext
         && first.PercentStyles.SequenceEqual(second.PercentStyles)
         && first.GraphColourArgb == second.GraphColourArgb;
 
+    private static bool SyncAlertsMatch(SyncAlertSettings first, SyncAlertSettings second) =>
+        first.MutedGoodProviders.SequenceEqual(second.MutedGoodProviders)
+        && first.MutedAttentionProviders.SequenceEqual(second.MutedAttentionProviders);
+
     private static bool ProcessWatchMatches(ProcessWatchSettings first, ProcessWatchSettings second) =>
         first.Items.SequenceEqual(second.Items);
 
@@ -505,6 +515,23 @@ internal sealed class JkBarContext : ApplicationContext
     }
 
     private void OpenNotchMenu() => _tray.ContextMenuStrip?.Show(Cursor.Position);
+
+    private void RememberPrimaryMonitorFallback()
+    {
+        if (_settings.Appearance.MonitorDeviceName.Length == 0)
+        {
+            return;
+        }
+
+        var updated = _settings with
+        {
+            Appearance = _settings.Appearance with { MonitorDeviceName = string.Empty }
+        };
+        if (TrySaveSettings(updated))
+        {
+            ApplySettings(updated, showImageError: false);
+        }
+    }
 
     private void Quit()
     {

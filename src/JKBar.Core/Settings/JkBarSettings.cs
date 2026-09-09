@@ -16,7 +16,7 @@ public sealed record AppearanceSettings
     /// <summary>Share of the height the image may fill; 100 is as tall as the band allows.</summary>
     public int ImageScalePercent { get; init; } = 100;
 
-    /// <summary>Which display the bar sits on. Empty follows whichever one it is already on.</summary>
+    /// <summary>Which display the bar sits on. Empty follows the current Windows primary display.</summary>
     public string MonitorDeviceName { get; init; } = string.Empty;
 
     public AppearanceSettings Normalized() => this with
@@ -95,6 +95,25 @@ public sealed record BehaviourSettings
     {
         MetricsRefreshSeconds = Math.Clamp(MetricsRefreshSeconds, 1, 10)
     };
+}
+
+public sealed record SyncAlertSettings
+{
+    public string[] MutedGoodProviders { get; init; } = [];
+    public string[] MutedAttentionProviders { get; init; } = [];
+
+    public SyncAlertSettings Normalized() => this with
+    {
+        MutedGoodProviders = NormalizedIds(MutedGoodProviders),
+        MutedAttentionProviders = NormalizedIds(MutedAttentionProviders)
+    };
+
+    public bool Allows(string providerId, BandItemBadge badge) =>
+        !(badge == BandItemBadge.Good ? MutedGoodProviders : MutedAttentionProviders)
+            .Contains(providerId, StringComparer.Ordinal);
+
+    private static string[] NormalizedIds(IEnumerable<string>? providerIds) =>
+        [.. (providerIds ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct(StringComparer.Ordinal)];
 }
 
 public sealed record BandItemsSettings
@@ -282,6 +301,7 @@ public sealed record JkBarSettings
     public NotchSettings Notch { get; init; } = new();
     public StartupSettings Startup { get; init; } = new();
     public BehaviourSettings Behaviour { get; init; } = new();
+    public SyncAlertSettings SyncAlerts { get; init; } = new();
     public ProcessWatchSettings ProcessWatch { get; init; } = new();
     public StockWatchSettings Stocks { get; init; } = new();
     public UpdateSettings Update { get; init; } = new();
@@ -296,6 +316,7 @@ public sealed record JkBarSettings
         Notch = Notch?.Normalized() ?? new NotchSettings(),
         Startup = Startup ?? new StartupSettings(),
         Behaviour = Behaviour?.Normalized() ?? new BehaviourSettings(),
+        SyncAlerts = SyncAlerts?.Normalized() ?? new SyncAlertSettings(),
         ProcessWatch = ProcessWatch?.Normalized() ?? new ProcessWatchSettings(),
         Stocks = Stocks?.Normalized() ?? new StockWatchSettings(),
         Update = Update?.Normalized() ?? new UpdateSettings(),

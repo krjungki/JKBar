@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>0.7.1</Version>
+    <Version>0.8.0</Version>
     <!-- Embedded symbols keep line numbers in stack traces without shipping .pdb files next to the executable. -->
     <DebugType>embedded</DebugType>
     <!-- Without this the SDK appends the commit hash to the informational version a future updater would compare. -->

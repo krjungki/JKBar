@@ -82,6 +82,7 @@ internal sealed class NotchForm : Form
     private bool _stocksLoading;
     private BandTypographySettings _typography = new();
     private BandItemsSettings _bandItems = new();
+    private SyncAlertSettings _syncAlerts = new();
     private NotchSettings _notchSettings = new();
     private BehaviourSettings _behaviour = new();
     private ProcessWatchSettings _processWatch = new();
@@ -104,6 +105,8 @@ internal sealed class NotchForm : Form
     internal event Action<WatchedProcess>? ProcessClicked;
 
     internal event Action? MenuRequested;
+
+    internal event Action? MonitorFellBackToPrimary;
 
     /// <summary>The left slot cannot hold a headline, so the caller decides what to do about the news.</summary>
     internal event Action? NewsRoomExhausted;
@@ -139,8 +142,8 @@ internal sealed class NotchForm : Form
         _displaySettle.Tick += (_, _) =>
         {
             _displaySettle.Stop();
-            ApplyOverlap();
-            Redraw();
+            FollowPrimaryIfSelectedMonitorIsMissing();
+            SettleDisplay();
         };
         _newsRefresh.Tick += async (_, _) => await RefreshNewsAsync();
         _newsRotation.Tick += (_, _) => RotateNews();
@@ -276,6 +279,8 @@ internal sealed class NotchForm : Form
         _bandItems = settings.Normalized();
         RefreshContent(force: true);
     }
+
+    internal void SetSyncAlerts(SyncAlertSettings settings) => _syncAlerts = settings.Normalized();
 
     internal void SetProcessWatch(ProcessWatchSettings settings)
     {
@@ -606,19 +611,38 @@ internal sealed class NotchForm : Form
     internal void SetMonitor(string deviceName)
     {
         _monitorDeviceName = deviceName;
-        ApplyOverlap();
-        Settle();
+        FollowPrimaryIfSelectedMonitorIsMissing();
+        SettleDisplay();
+    }
+
+    private void FollowPrimaryIfSelectedMonitorIsMissing()
+    {
+        if (_monitorDeviceName.Length == 0 || MonitorCatalog.BoundsOf(_monitorDeviceName) is not null)
+        {
+            return;
+        }
+
+        _monitorDeviceName = string.Empty;
+        if (!IsDisposed && !Disposing)
+        {
+            BeginInvoke(() => MonitorFellBackToPrimary?.Invoke());
+        }
     }
 
     /// <summary>
-    /// The chosen display, or whichever one the window is already on when nothing is chosen and when the chosen
-    /// one is unplugged. Panel bounds rather than the work area, because the bar imitates a hole in the bezel.
+    /// The chosen display, or the current Windows primary when nothing is chosen or the chosen one is unplugged.
+    /// Panel bounds rather than the work area, because the bar imitates a hole in the bezel.
     /// </summary>
     private NotchGeometry.Rect HostBounds()
     {
         if (MonitorCatalog.BoundsOf(_monitorDeviceName) is { } chosen)
         {
             return chosen;
+        }
+
+        if (MonitorCatalog.PrimaryBounds() is { } primary)
+        {
+            return primary;
         }
 
         var area = Screen.FromHandle(Handle).Bounds;
@@ -795,7 +819,7 @@ internal sealed class NotchForm : Form
                 return;
             }
 
-            foreach (var alert in _syncWatcher.Observe(_syncPoller.Snapshots, _bandItems.IsVisible))
+            foreach (var alert in _syncWatcher.Observe(_syncPoller.Snapshots, _syncAlerts.Allows))
             {
                 Notify(alert);
             }
@@ -846,6 +870,13 @@ internal sealed class NotchForm : Form
         _animation.Stop();
         _shown = _expanded ? Resting().Expanded() : Resting();
         Redraw();
+    }
+
+    /// <summary>The layered surface moves first, so the reserved band's new cutout never exposes its old size.</summary>
+    private void SettleDisplay()
+    {
+        Settle();
+        ApplyOverlap();
     }
 
     private void StartTransition(NotchMetrics target)
@@ -930,8 +961,7 @@ internal sealed class NotchForm : Form
                 // Moving to another monitor changes the DPI, and a shell restart rearranges the z-order. The
                 // reserved band is in physical pixels, so it has to be claimed again at the new scale.
                 base.WndProc(ref m);
-                ApplyOverlap();
-                Redraw();
+                SettleDisplay();
                 _displaySettle.Stop();
                 _displaySettle.Start();
                 return;

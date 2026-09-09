@@ -2,6 +2,7 @@
 using JKBar.Core.Settings;
 using JKBar.Core.Presentation;
 using JKBar.Core.Layout;
+using JKBar.Core.Sync;
 
 namespace JKBar.Core.Tests;
 
@@ -225,6 +226,34 @@ public class SettingsStoreTests : IDisposable
     public void SamplesTheReadoutsEveryTwoSecondsUnlessToldOtherwise()
     {
         Assert.Equal(2, new JkBarSettings().Normalized().Behaviour.MetricsRefreshSeconds);
+    }
+
+    [Fact]
+    public void SyncAlertsDefaultToEveryProviderAndStateEnabled()
+    {
+        var settings = new SyncAlertSettings();
+
+        Assert.True(settings.Allows(SyncProviderCatalog.OneDrive, BandItemBadge.Good));
+        Assert.True(settings.Allows(SyncProviderCatalog.OneDrive, BandItemBadge.Attention));
+    }
+
+    [Fact]
+    public void NormalizesAndPersistsMutedSyncAlertStates()
+    {
+        var store = Store();
+        var expected = new SyncAlertSettings
+        {
+            MutedGoodProviders = [" onedrive ", "onedrive"],
+            MutedAttentionProviders = ["gsa"]
+        };
+
+        store.Save(new JkBarSettings { SyncAlerts = expected });
+        var actual = store.Load().SyncAlerts;
+
+        Assert.Equal(["onedrive"], actual.MutedGoodProviders);
+        Assert.Equal(["gsa"], actual.MutedAttentionProviders);
+        Assert.False(actual.Allows(SyncProviderCatalog.OneDrive, BandItemBadge.Good));
+        Assert.True(actual.Allows(SyncProviderCatalog.OneDrive, BandItemBadge.Attention));
     }
 
     [Fact]

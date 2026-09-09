@@ -82,6 +82,8 @@ internal sealed class SettingsForm : Form
     private readonly ComboBox _percentStyle = DropDown();
     private readonly Dictionary<BandItemKind, BandPercentStyle> _percentStyles = [];
     private readonly Dictionary<BandItemKind, bool> _itemVisibility = [];
+    private readonly Dictionary<string, CheckBox> _syncGoodAlerts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CheckBox> _syncAttentionAlerts = new(StringComparer.Ordinal);
     private readonly CheckBox _newsEnabled = new() { Text = "뉴스 표시", AutoSize = true };
     private readonly TextBox _feedUrl = new() { Dock = DockStyle.Fill };
     private readonly NumericUpDown _refreshMinutes = new() { Minimum = 5, Maximum = 1440, Width = 90 };
@@ -260,6 +262,12 @@ internal sealed class SettingsForm : Form
             _percentStyles[kind] = normalized.BandItems.StyleFor(kind);
         }
 
+        foreach (var providerId in SyncProviderCatalog.BuiltIn)
+        {
+            _syncGoodAlerts[providerId] = SyncAlertCheckBox(normalized.SyncAlerts.Allows(providerId, BandItemBadge.Good));
+            _syncAttentionAlerts[providerId] = SyncAlertCheckBox(normalized.SyncAlerts.Allows(providerId, BandItemBadge.Attention));
+        }
+
         AddOption(_percentStyle, "이름과 숫자", BandPercentStyle.LabelAndValue);
         AddOption(_percentStyle, "세로 이름과 그래프", BandPercentStyle.VerticalLabelGraph);
         AddOption(_percentStyle, "세로 이름, 숫자와 그래프", BandPercentStyle.VerticalLabelValueGraph);
@@ -381,6 +389,7 @@ internal sealed class SettingsForm : Form
         },
         Typography = _typography with { TextShadow = _textShadow.Checked },
         BandItems = ReadBandItems(),
+        SyncAlerts = ReadSyncAlerts(),
         ProcessWatch = ReadProcessWatch(),
         Stocks = ReadStocks(),
         Update = _original.Update with
@@ -540,16 +549,60 @@ internal sealed class SettingsForm : Form
         graphColourRow.Controls.Add(_graphSwatch);
         graphColourRow.Controls.Add(_graphColour);
 
-        var layout = FormGrid();
-        AddRow(layout, "Bar 색깔", colorRow);
-        AddRow(layout, "Bar 투명도", opacityRow);
-        AddRow(layout, "사용자 로고", imageRow);
-        AddRow(layout, "사용자 로고 크기", SliderRow(_imageScale, _imageScaleValue));
-        AddRow(layout, "Bar 폰트", fontRow);
-        AddRow(layout, "성능 카운터 갱신(초)", _metricsRefresh);
-        AddRow(layout, "성능 카운터 표시 방식", _percentStyle);
-        AddRow(layout, "성능 카운터 그래프 색", graphColourRow);
-        AddRow(layout, "오른쪽 표시 항목", itemLayout, fill: true);
+        var appearance = FormGrid();
+        AddRow(appearance, "Bar 색깔", colorRow);
+        AddRow(appearance, "Bar 투명도", opacityRow);
+        AddRow(appearance, "사용자 로고", imageRow);
+        AddRow(appearance, "사용자 로고 크기", SliderRow(_imageScale, _imageScaleValue));
+        AddRow(appearance, "Bar 폰트", fontRow);
+        AddFiller(appearance);
+
+        var items = FormGrid();
+        AddRow(items, "성능 카운터 갱신(초)", _metricsRefresh);
+        AddRow(items, "성능 카운터 표시 방식", _percentStyle);
+        AddRow(items, "성능 카운터 그래프 색", graphColourRow);
+        AddRow(items, "내장 앱 확장 알림", BuildSyncAlertOptions());
+        AddRow(items, "오른쪽 표시 항목", itemLayout, fill: true);
+
+        var tabs = Tabs(Color.FromArgb(23, 132, 130), Color.FromArgb(222, 228, 236));
+        tabs.Margin = new Padding(10);
+        tabs.TabPages.Add(Page("Bar 모양", appearance));
+        tabs.TabPages.Add(Page("표시항목", items));
+        var frame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = Color.FromArgb(238, 241, 247) };
+        frame.Controls.Add(tabs);
+        return frame;
+    }
+
+    private static CheckBox SyncAlertCheckBox(bool isChecked) => new()
+    {
+        Checked = isChecked,
+        AutoSize = true,
+        Anchor = AnchorStyles.None
+    };
+
+    private Control BuildSyncAlertOptions()
+    {
+        var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 4 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.Controls.Add(new Label { AutoSize = true }, 0, 0);
+        layout.Controls.Add(new Label { Text = "정상", AutoSize = true, Anchor = AnchorStyles.None }, 1, 0);
+        layout.Controls.Add(new Label { Text = "주의 필요", AutoSize = true, Anchor = AnchorStyles.None }, 2, 0);
+
+        for (var index = 0; index < SyncProviderCatalog.BuiltIn.Count; index++)
+        {
+            var providerId = SyncProviderCatalog.BuiltIn[index];
+            layout.Controls.Add(new Label
+            {
+                Text = SyncProviderCatalog.DisplayName(providerId),
+                AutoSize = true,
+                Anchor = AnchorStyles.Left
+            }, 0, index + 1);
+            layout.Controls.Add(_syncGoodAlerts[providerId], 1, index + 1);
+            layout.Controls.Add(_syncAttentionAlerts[providerId], 2, index + 1);
+        }
+
         return layout;
     }
 
@@ -1048,18 +1101,12 @@ internal sealed class SettingsForm : Form
         UpdateGraphColourState();
     }
 
-    /// <summary>A display the user unplugged is still offered, so choosing it again does not need it plugged in.</summary>
     private void LoadMonitors(string chosen)
     {
-        _monitor.Items.Add(new MonitorEntry(string.Empty, "자동 (창이 놓인 화면)"));
+        _monitor.Items.Add(new MonitorEntry(string.Empty, "자동 (Windows 주 모니터)"));
         foreach (var monitor in MonitorCatalog.All())
         {
             _monitor.Items.Add(monitor);
-        }
-
-        if (chosen.Length > 0 && !_monitor.Items.Cast<MonitorEntry>().Any(entry => entry.DeviceName == chosen))
-        {
-            _monitor.Items.Add(new MonitorEntry(chosen, $"{chosen} · 연결되지 않음"));
         }
 
         _monitor.SelectedIndex = Math.Max(
@@ -1083,6 +1130,12 @@ internal sealed class SettingsForm : Form
             GraphColourArgb = _graphFollowsText.Checked ? null : _selectedGraphColour.ToArgb()
         };
     }
+
+    private SyncAlertSettings ReadSyncAlerts() => new()
+    {
+        MutedGoodProviders = [.. _syncGoodAlerts.Where(pair => !pair.Value.Checked).Select(pair => pair.Key)],
+        MutedAttentionProviders = [.. _syncAttentionAlerts.Where(pair => !pair.Value.Checked).Select(pair => pair.Key)]
+    };
 
     /// <summary>Only a percentage can be drawn as a graph, so the choice is offered for those readouts alone.</summary>
     private void ShowPercentStyleOfSelection()

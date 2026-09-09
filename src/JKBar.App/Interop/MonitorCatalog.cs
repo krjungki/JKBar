@@ -32,9 +32,21 @@ internal static class MonitorCatalog
         return entries;
     }
 
+    internal static NotchGeometry.Rect? PrimaryBounds()
+    {
+        var screen = Screen.PrimaryScreen ?? Screen.AllScreens.FirstOrDefault();
+        if (screen is null)
+        {
+            return null;
+        }
+
+        var bounds = screen.Bounds;
+        return new NotchGeometry.Rect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+    }
+
     /// <summary>
     /// Panel bounds of the named display, not its work area, because the bar hugs the bezel the way a real notch
-    /// does. Null when nothing is named or it is unplugged, so the caller can fall back to its own screen.
+    /// does. Null when nothing is named or it is unplugged, so the caller can fall back to the Windows primary.
     /// </summary>
     internal static NotchGeometry.Rect? BoundsOf(string? deviceName)
     {
