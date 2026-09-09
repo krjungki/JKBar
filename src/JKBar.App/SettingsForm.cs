@@ -104,6 +104,12 @@ internal sealed class SettingsForm : Form
         Text = "경로 없이 프로세스 이름으로만 찾기",
         AutoSize = true
     };
+    private readonly CheckBox _processCountVisible = new()
+    {
+        Text = "아이콘에 실행 중인 프로세스 수 표시",
+        AutoSize = true,
+        Checked = true
+    };
 
     private readonly CheckBox _stocksEnabled = new() { Text = "주식 표시", AutoSize = true };
     private readonly TextBox _stockQuery = new() { Dock = DockStyle.Fill };
@@ -493,7 +499,7 @@ internal sealed class SettingsForm : Form
 
         var imageButtons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
         var chooseImage = new Button { Text = "이미지 선택...", AutoSize = true };
-        var clearImage = new Button { Text = "제거", AutoSize = true };
+        var clearImage = new Button { Text = "기본 이미지", AutoSize = true };
         chooseImage.Click += (_, _) => ChooseImage();
         clearImage.Click += (_, _) => _imagePath.Clear();
         imageButtons.Controls.Add(chooseImage);
@@ -647,9 +653,10 @@ internal sealed class SettingsForm : Form
     /// </summary>
     private Control BuildProcessTab()
     {
-        _processes.Columns.Add("이름", 120);
-        _processes.Columns.Add("경로", 230);
-        _processes.Columns.Add("찾는 방식", 130);
+        _processes.Columns.Add("이름", 110);
+        _processes.Columns.Add("경로", 200);
+        _processes.Columns.Add("찾는 방식", 90);
+        _processes.Columns.Add("개수 표시", 90);
         _processes.SelectedIndexChanged += (_, _) =>
         {
             if (_processes.SelectedItems.Count == 0)
@@ -660,6 +667,7 @@ internal sealed class SettingsForm : Form
             _processName.Text = _processes.SelectedItems[0].Text;
             _processPath.Text = _processes.SelectedItems[0].SubItems[1].Text;
             _processNameOnly.Checked = _processPath.Text.Length == 0;
+            _processCountVisible.Checked = _processes.SelectedItems[0].SubItems[3].Text == "표시";
         };
 
         _processNameOnly.CheckedChanged += (_, _) =>
@@ -686,6 +694,7 @@ internal sealed class SettingsForm : Form
         var layout = FormGrid();
         AddRow(layout, "프로세스 이름", _processName);
         AddRow(layout, string.Empty, _processNameOnly);
+        AddRow(layout, string.Empty, _processCountVisible);
         AddRow(layout, "실행 파일 경로", _processPath);
         AddRow(layout, string.Empty, buttons);
         AddRow(layout, "실행 앱 목록", _processes, fill: true);
@@ -712,7 +721,12 @@ internal sealed class SettingsForm : Form
 
     private void AddOrUpdateProcess()
     {
-        var entry = new WatchedProcess { Name = _processName.Text, Path = _processPath.Text }.Normalized();
+        var entry = new WatchedProcess
+        {
+            Name = _processName.Text,
+            Path = _processPath.Text,
+            ShowProcessCount = _processCountVisible.Checked
+        }.Normalized();
         if (entry.MatchKey.Length == 0)
         {
             MessageBox.Show(
@@ -746,11 +760,13 @@ internal sealed class SettingsForm : Form
             existing.Text = entry.Name;
             existing.SubItems[1].Text = entry.Path;
             existing.SubItems[2].Text = MatchLabel(entry);
+            existing.SubItems[3].Text = CountLabel(entry);
         }
 
         _processName.Clear();
         _processPath.Clear();
         _processNameOnly.Checked = false;
+        _processCountVisible.Checked = true;
         RaisePreview();
     }
 
@@ -759,9 +775,12 @@ internal sealed class SettingsForm : Form
         var row = _processes.Items.Add(entry.Name);
         row.SubItems.Add(entry.Path);
         row.SubItems.Add(MatchLabel(entry));
+        row.SubItems.Add(CountLabel(entry));
     }
 
     private static string MatchLabel(WatchedProcess entry) => entry.ByNameOnly ? "이름만" : "경로";
+
+    private static string CountLabel(WatchedProcess entry) => entry.ShowProcessCount ? "표시" : "숨김";
 
     private void RemoveSelectedProcess()
     {
@@ -778,7 +797,12 @@ internal sealed class SettingsForm : Form
     {
         Items = [.. _processes.Items
             .Cast<ListViewItem>()
-            .Select(item => new WatchedProcess { Name = item.Text, Path = item.SubItems[1].Text })]
+            .Select(item => new WatchedProcess
+            {
+                Name = item.Text,
+                Path = item.SubItems[1].Text,
+                ShowProcessCount = item.SubItems[3].Text == "표시"
+            })]
     };
 
     private static string Key(ListViewItem item) =>

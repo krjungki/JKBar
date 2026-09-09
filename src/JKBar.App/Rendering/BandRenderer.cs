@@ -104,7 +104,7 @@ internal static class BandRenderer
         var band = new NotchGeometry.Rect(0, 0, surface.Width, surface.Height);
         var slots = BandLayout.Divide(band, notch, padding);
 
-        var imageRight = DrawImage(g, slots.Left, image, imageScalePercent, padding);
+        var imageBounds = DrawImage(g, slots.Left, image, imageScalePercent, padding);
 
         var foregroundColour = Color.FromArgb(typography.TextColourArgb);
         using var valueFont = CreateFont(typography, surface.Height, 1f);
@@ -115,6 +115,7 @@ internal static class BandRenderer
             ? new SolidBrush(ShadowColourFor(foregroundColour))
             : null;
         var ink = new Ink(foreground, shadow, foregroundColour, style.GraphColour ?? foregroundColour);
+        var imageRight = imageBounds.IsEmpty ? slots.Left.Left : imageBounds.Right;
         var contentLeft = LeftContentStart(slots.Left, imageRight, padding);
         var (newsBox, quoteBox, newsCramped) = LeftBoxes(g, slots.Left, activeApp, valueFont, padding, contentLeft);
         DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, contentLeft, newsBox.Left);
@@ -131,7 +132,7 @@ internal static class BandRenderer
             padding);
         var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, ink);
 
-        return new BandHitAreas(newsBounds, processIcons, news is not null && newsCramped);
+        return new BandHitAreas(imageBounds, newsBounds, processIcons, news is not null && newsCramped);
     }
 
     /// <summary>
@@ -153,17 +154,17 @@ internal static class BandRenderer
         using var brush = new SolidBrush(NotchFill);
         g.FillPath(brush, path);
     }
-    private static int DrawImage(Graphics g, NotchGeometry.Rect slot, Image? image, int scalePercent, int padding)
+    private static Rectangle DrawImage(Graphics g, NotchGeometry.Rect slot, Image? image, int scalePercent, int padding)
     {
         if (image is null || slot.Width <= 0)
         {
-            return slot.Left;
+            return Rectangle.Empty;
         }
 
         var available = (int)Math.Round((slot.Height - padding) * (Math.Clamp(scalePercent, 1, 100) / 100d));
         if (available <= 0)
         {
-            return slot.Left;
+            return Rectangle.Empty;
         }
 
         var factor = Math.Min(available / (double)image.Height, slot.Width / (double)image.Width);
@@ -171,11 +172,12 @@ internal static class BandRenderer
         var height = (int)Math.Round(image.Height * factor);
         if (width <= 0 || height <= 0)
         {
-            return slot.Left;
+            return Rectangle.Empty;
         }
 
-        g.DrawImage(image, slot.Left, slot.Top + ((slot.Height - height) / 2), width, height);
-        return slot.Left + width;
+        var bounds = new Rectangle(slot.Left, slot.Top + ((slot.Height - height) / 2), width, height);
+        g.DrawImage(image, bounds);
+        return bounds;
     }
 
     /// <param name="limit">Where the headline's box starts; the name is trimmed before it reaches that.</param>
@@ -452,7 +454,10 @@ internal static class BandRenderer
 
             var bounds = new Rectangle(start, top, diameter, diameter);
             g.DrawImage(icon, bounds);
-            DrawCountBadge(g, bounds, diameter, processes[i].Count, ink);
+            if (watched.ShowProcessCount)
+            {
+                DrawCountBadge(g, bounds, diameter, processes[i].Count, ink);
+            }
             drawn.Add(new ProcessIcon(watched, bounds));
             right = start - gap;
         }

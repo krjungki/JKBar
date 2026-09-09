@@ -102,6 +102,8 @@ internal sealed class NotchForm : Form
 
     internal event Action<Rectangle>? NewsClicked;
 
+    internal event Action<Rectangle>? ImageClicked;
+
     internal event Action<WatchedProcess>? ProcessClicked;
 
     internal event Action? MenuRequested;
@@ -150,6 +152,7 @@ internal sealed class NotchForm : Form
         _stockRefresh.Tick += async (_, _) => await RefreshStocksAsync();
         _stockRotation.Tick += (_, _) => RotateStocks();
         _reservation.Claimed += () => NotchWindowInterop.RaiseToTop(Handle);
+        _reservation.ImageClicked += anchor => ImageClicked?.Invoke(anchor);
         _reservation.NewsClicked += anchor => NewsClicked?.Invoke(anchor);
         _reservation.ProcessClicked += process => ProcessClicked?.Invoke(process);
         _reservation.NewsRoomExhausted += () => NewsRoomExhausted?.Invoke();
@@ -335,16 +338,17 @@ internal sealed class NotchForm : Form
         return true;
     }
 
-    internal void SetImageScale(int percent)
+    internal void SetDefaultImage()
     {
-        _imageScalePercent = percent;
+        var loaded = DefaultBandImage.Load();
+        _image?.Dispose();
+        _image = loaded;
         RefreshContent(force: true);
     }
 
-    internal void ClearImage()
+    internal void SetImageScale(int percent)
     {
-        _image?.Dispose();
-        _image = null;
+        _imageScalePercent = percent;
         RefreshContent(force: true);
     }
 

@@ -22,6 +22,7 @@ internal sealed class JkBarContext : ApplicationContext
     private readonly NotchForm _bar = new();
     private readonly NewsArticleWindow _article = new();
     private readonly NotifyIcon _tray = new();
+    private readonly ContextMenuStrip _computerMenu;
     private readonly IntPtr _iconHandle;
     private readonly UpdateService _updates = new();
 
@@ -43,6 +44,7 @@ internal sealed class JkBarContext : ApplicationContext
         _tray.Icon = icon;
         _tray.Text = $"JKBar {BuildInfo.Version}";
         _tray.ContextMenuStrip = BuildTrayMenu();
+        _computerMenu = BuildComputerMenu();
         _tray.MouseUp += (_, e) =>
         {
             if (e.Button == MouseButtons.Left)
@@ -53,6 +55,7 @@ internal sealed class JkBarContext : ApplicationContext
         _tray.Visible = true;
 
         _bar.Show();
+        _bar.ImageClicked += OpenComputerMenu;
         _bar.NewsClicked += ShowArticle;
         _bar.ProcessClicked += ProcessActivator.Activate;
         _bar.MenuRequested += OpenNotchMenu;
@@ -219,6 +222,16 @@ internal sealed class JkBarContext : ApplicationContext
         menu.Items.Add("업데이트 확인...", null, async (_, _) => await CheckForUpdatesAsync(announce: true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("앱 종료", null, (_, _) => Quit());
+        return menu;
+    }
+
+    private ContextMenuStrip BuildComputerMenu()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("이 컴퓨터에 대해서", null, (_, _) => OpenSystemInformation());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("컴퓨터 재시작", null, (_, _) => ConfirmPowerAction(ComputerPowerAction.Restart));
+        menu.Items.Add("컴퓨터 종료", null, (_, _) => ConfirmPowerAction(ComputerPowerAction.ShutDown));
         return menu;
     }
 
@@ -415,7 +428,7 @@ internal sealed class JkBarContext : ApplicationContext
     {
         if (path is null)
         {
-            _bar.ClearImage();
+            _bar.SetDefaultImage();
             return;
         }
 
@@ -424,7 +437,7 @@ internal sealed class JkBarContext : ApplicationContext
             return;
         }
 
-        _bar.ClearImage();
+        _bar.SetDefaultImage();
         if (showImageError)
         {
             MessageBox.Show(
@@ -516,6 +529,59 @@ internal sealed class JkBarContext : ApplicationContext
 
     private void OpenNotchMenu() => _tray.ContextMenuStrip?.Show(Cursor.Position);
 
+    private void OpenComputerMenu(Rectangle anchor) =>
+        _computerMenu.Show(new Point(anchor.Left, anchor.Bottom));
+
+    private static void OpenSystemInformation()
+    {
+        try
+        {
+            using var started = Process.Start(new ProcessStartInfo("msinfo32.exe") { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageBox.Show(
+                $"시스템 정보를 열지 못했습니다.\n\n{exception.Message}",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    private static void ConfirmPowerAction(ComputerPowerAction action)
+    {
+        var restart = action == ComputerPowerAction.Restart;
+        var verb = restart ? "다시 시작" : "종료";
+        var result = MessageBox.Show(
+            $"컴퓨터를 지금 {verb}할까요?\n\n저장하지 않은 작업이 손실될 수 있습니다.",
+            "JKBar",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (result != DialogResult.Yes)
+        {
+            return;
+        }
+
+        var command = ComputerPowerCommand.For(action);
+        try
+        {
+            using var started = Process.Start(new ProcessStartInfo(command.FileName, command.Arguments)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageBox.Show(
+                $"컴퓨터를 {verb}하지 못했습니다.\n\n{exception.Message}",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
     private void RememberPrimaryMonitorFallback()
     {
         if (_settings.Appearance.MonitorDeviceName.Length == 0)
@@ -547,6 +613,7 @@ internal sealed class JkBarContext : ApplicationContext
             _updateClock.Dispose();
             _updates.Dispose();
             _shutdown.Dispose();
+            _computerMenu.Dispose();
             _tray.Dispose();
             TrayIconFactory.Destroy(_iconHandle);
             _article.Dispose();

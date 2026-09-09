@@ -1,5 +1,6 @@
 // Parses RSS and Atom without retaining article bodies or other feed content.
 using System.Globalization;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -9,14 +10,22 @@ public static class NewsFeedParser
 {
     public static IReadOnlyList<NewsItem> Parse(string xml, Uri feedUri)
     {
-        using var text = new StringReader(xml);
-        using var reader = XmlReader.Create(text, new XmlReaderSettings
+        XDocument document;
+        try
         {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null
-        });
+            document = Load(xml);
+        }
+        catch (XmlException)
+        {
+            var repaired = RepairBareAmpersands(xml);
+            if (string.Equals(repaired, xml, StringComparison.Ordinal))
+            {
+                throw;
+            }
 
-        var document = XDocument.Load(reader, LoadOptions.None);
+            document = Load(repaired);
+        }
+
         var root = document.Root ?? throw new XmlException("The feed has no root element.");
 
         return root.Name.LocalName switch
@@ -25,6 +34,99 @@ public static class NewsFeedParser
             "feed" => ParseAtom(root, feedUri),
             _ => throw new XmlException($"Unsupported feed root '{root.Name.LocalName}'.")
         };
+    }
+
+    private static XDocument Load(string xml)
+    {
+        using var text = new StringReader(xml);
+        using var reader = XmlReader.Create(text, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null
+        });
+
+        return XDocument.Load(reader, LoadOptions.None);
+    }
+
+    private static string RepairBareAmpersands(string xml)
+    {
+        StringBuilder? repaired = null;
+        var copiedUntil = 0;
+
+        for (var index = 0; index < xml.Length; index++)
+        {
+            var terminator = xml.AsSpan(index).StartsWith("<![CDATA[", StringComparison.Ordinal)
+                ? "]" + "]>"
+                : xml.AsSpan(index).StartsWith("<!--", StringComparison.Ordinal)
+                    ? "-->"
+                    : xml.AsSpan(index).StartsWith("<?", StringComparison.Ordinal)
+                        ? "?>"
+                        : null;
+            if (terminator is not null)
+            {
+                var end = xml.IndexOf(terminator, index + 2, StringComparison.Ordinal);
+                if (end < 0)
+                {
+                    return xml;
+                }
+
+                index = end + terminator.Length - 1;
+                continue;
+            }
+
+            if (xml[index] != '&' || IsXmlEntityAt(xml, index))
+            {
+                continue;
+            }
+
+            repaired ??= new StringBuilder(xml.Length + 16);
+            repaired.Append(xml, copiedUntil, index - copiedUntil);
+            repaired.Append("&amp;");
+            copiedUntil = index + 1;
+        }
+
+        if (repaired is null)
+        {
+            return xml;
+        }
+
+        repaired.Append(xml, copiedUntil, xml.Length - copiedUntil);
+        return repaired.ToString();
+    }
+
+    private static bool IsXmlEntityAt(string xml, int ampersand)
+    {
+        var value = xml.AsSpan(ampersand);
+        if (value.StartsWith("&amp;", StringComparison.Ordinal)
+            || value.StartsWith("&lt;", StringComparison.Ordinal)
+            || value.StartsWith("&gt;", StringComparison.Ordinal)
+            || value.StartsWith("&quot;", StringComparison.Ordinal)
+            || value.StartsWith("&apos;", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (value.Length < 4 || value[1] != '#')
+        {
+            return false;
+        }
+
+        var index = 2;
+        var hexadecimal = index < value.Length && value[index] is 'x' or 'X';
+        if (hexadecimal)
+        {
+            index++;
+        }
+
+        var firstDigit = index;
+        while (index < value.Length && (hexadecimal
+                   ? Uri.IsHexDigit(value[index])
+                   : char.IsAsciiDigit(value[index])))
+        {
+            index++;
+        }
+
+        return index > firstDigit && index < value.Length && value[index] == ';';
     }
 
     private static IReadOnlyList<NewsItem> ParseRss(XElement root, Uri feedUri) =>

@@ -143,17 +143,55 @@ public class ProcessWatchTests
     }
 
     [Fact]
+    public void TheSignatureChangesWhenOnlyTheCountBadgeSettingChanges()
+    {
+        var shown = ProcessWatchSource.Running(
+            Watch(new WatchedProcess { Name = "chrome.exe", ShowProcessCount = true }),
+            Counts("chrome"));
+        var hidden = ProcessWatchSource.Running(
+            Watch(new WatchedProcess { Name = "chrome.exe", ShowProcessCount = false }),
+            Counts("chrome"));
+
+        Assert.NotEqual(ProcessWatchSource.Signature(shown), ProcessWatchSource.Signature(hidden));
+    }
+
+    [Fact]
     public void TheListSurvivesASettingsRoundTrip()
     {
         var settings = new JkBarSettings
         {
-            ProcessWatch = Watch(new WatchedProcess { Name = "copilotapp.exe", Path = "C:\\Apps\\copilotapp.exe" })
+            ProcessWatch = Watch(new WatchedProcess
+            {
+                Name = "copilotapp.exe",
+                Path = "C:\\Apps\\copilotapp.exe",
+                ShowProcessCount = false
+            })
         };
 
         var restored = JsonSerializer.Deserialize<JkBarSettings>(JsonSerializer.Serialize(settings))!.Normalized();
 
         Assert.Equal("copilotapp.exe", restored.ProcessWatch.Items[0].Name);
         Assert.Equal("C:\\Apps\\copilotapp.exe", restored.ProcessWatch.Items[0].Path);
+        Assert.False(restored.ProcessWatch.Items[0].ShowProcessCount);
+    }
+
+    [Fact]
+    public void SettingsSavedBeforeTheCountOptionStillShowTheBadge()
+    {
+        var restored = JsonSerializer.Deserialize<JkBarSettings>(
+            "{\"ProcessWatch\":{\"Items\":[{\"Name\":\"chrome.exe\"}]}}")!.Normalized();
+
+        Assert.True(Assert.Single(restored.ProcessWatch.Items).ShowProcessCount);
+    }
+
+    [Fact]
+    public void HidingTheCountDoesNotHideTheRunningApp()
+    {
+        var settings = Watch(new WatchedProcess { Name = "chrome.exe", ShowProcessCount = false });
+
+        var running = Assert.Single(ProcessWatchSource.Running(settings, Counts("chrome")));
+
+        Assert.False(running.Watched.ShowProcessCount);
     }
 
     [Fact]

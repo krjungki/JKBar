@@ -37,5 +37,6 @@ public static class ProcessWatchSource
 
     /// <summary>What the band is showing right now, so an unchanged list does not repaint the full-width surface.</summary>
     public static string Signature(IReadOnlyList<RunningProcess> running) =>
-        string.Join('|', running.Select(item => $"{item.Watched.MatchKey}:{item.Count}"));
+        string.Join('|', running.Select(item =>
+            $"{item.Watched.MatchKey}:{item.Count}:{item.Watched.ShowProcessCount}"));
 }

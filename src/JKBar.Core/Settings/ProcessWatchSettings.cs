@@ -12,6 +12,7 @@ public sealed record WatchedProcess
 {
     public string Name { get; init; } = string.Empty;
     public string Path { get; init; } = string.Empty;
+    public bool ShowProcessCount { get; init; } = true;
 
     /// <summary>What a running process has to be called to count as this entry.</summary>
     public string MatchKey =>

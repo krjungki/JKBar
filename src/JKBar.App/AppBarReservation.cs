@@ -25,6 +25,7 @@ internal sealed class AppBarReservation : Form
     private IReadOnlyList<RunningProcess> _runningProcesses = [];
     private NewsItem? _news;
     private StockQuote? _quote;
+    private Rectangle _imageBounds;
     private Rectangle _newsBounds;
     private IReadOnlyList<ProcessIcon> _processIcons = [];
     private Image? _image;
@@ -38,6 +39,7 @@ internal sealed class AppBarReservation : Form
 
     /// <summary>Raised after the band takes a new position, so the bar can put itself back above it.</summary>
     internal Action? Claimed;
+    internal Action<Rectangle>? ImageClicked;
     internal Action<Rectangle>? NewsClicked;
     internal Action<WatchedProcess>? ProcessClicked;
 
@@ -253,6 +255,7 @@ internal sealed class AppBarReservation : Form
                 _items,
                 _runningProcesses);
 
+            _imageBounds = areas.Image;
             _newsBounds = areas.News;
             _processIcons = areas.ProcessIcons;
             cramped = areas.NewsCramped;
@@ -290,7 +293,9 @@ internal sealed class AppBarReservation : Form
         {
             var screenPoint = new Point((short)(m.LParam.ToInt64() & 0xffff), (short)(m.LParam.ToInt64() >> 16));
             var client = PointToClient(screenPoint);
-            var clickable = _newsBounds.Contains(client) || ProcessIconHitTest.At(_processIcons, client) is not null;
+            var clickable = _imageBounds.Contains(client)
+                || _newsBounds.Contains(client)
+                || ProcessIconHitTest.At(_processIcons, client) is not null;
             m.Result = clickable ? htClient : htTransparent;
             return;
         }
@@ -311,7 +316,9 @@ internal sealed class AppBarReservation : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var clickable = _newsBounds.Contains(e.Location) || ProcessIconHitTest.At(_processIcons, e.Location) is not null;
+        var clickable = _imageBounds.Contains(e.Location)
+            || _newsBounds.Contains(e.Location)
+            || ProcessIconHitTest.At(_processIcons, e.Location) is not null;
         Cursor = clickable ? Cursors.Hand : Cursors.Default;
     }
 
@@ -321,6 +328,12 @@ internal sealed class AppBarReservation : Form
 
         if (e.Button != MouseButtons.Left)
         {
+            return;
+        }
+
+        if (_imageBounds.Contains(e.Location))
+        {
+            ImageClicked?.Invoke(RectangleToScreen(_imageBounds));
             return;
         }
 
