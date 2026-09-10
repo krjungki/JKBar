@@ -36,6 +36,10 @@ internal static class ForegroundWindowInterop
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
@@ -70,6 +74,14 @@ internal static class ForegroundWindowInterop
     /// <summary>Which display a window sits on. A hidden window keeps its position, so this works while suppressed.</summary>
     internal static IntPtr MonitorOf(IntPtr window) =>
         window == IntPtr.Zero ? IntPtr.Zero : MonitorFromWindow(window, MonitorDefaultToNearest);
+
+    internal static void Activate(IntPtr window)
+    {
+        if (window != IntPtr.Zero)
+        {
+            SetForegroundWindow(window);
+        }
+    }
 
     /// <summary>Reports the shell when there is no usable foreground window, which reads as "not full screen".</summary>
     internal static (bool IsShell, IntPtr Monitor, NotchGeometry.Rect Window, NotchGeometry.Rect Bounds) Foreground()

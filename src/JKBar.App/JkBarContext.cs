@@ -215,7 +215,7 @@ internal sealed class JkBarContext : ApplicationContext
 
     private ContextMenuStrip BuildTrayMenu()
     {
-        var menu = new ContextMenuStrip();
+        var menu = ActivatedMenu();
         menu.Items.Add(new ToolStripMenuItem($"JKBar {BuildInfo.Version}") { Enabled = false });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("설정 열기...", null, (_, _) => OpenSettings());
@@ -227,11 +227,18 @@ internal sealed class JkBarContext : ApplicationContext
 
     private ContextMenuStrip BuildComputerMenu()
     {
-        var menu = new ContextMenuStrip();
+        var menu = ActivatedMenu();
         menu.Items.Add("이 컴퓨터에 대해서", null, (_, _) => OpenSystemInformation());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("컴퓨터 재시작", null, (_, _) => ConfirmPowerAction(ComputerPowerAction.Restart));
         menu.Items.Add("컴퓨터 종료", null, (_, _) => ConfirmPowerAction(ComputerPowerAction.ShutDown));
+        return menu;
+    }
+
+    private static ContextMenuStrip ActivatedMenu()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Opened += (_, _) => ForegroundWindowInterop.Activate(menu.Handle);
         return menu;
     }
 
