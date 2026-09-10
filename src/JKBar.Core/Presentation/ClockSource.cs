@@ -27,15 +27,7 @@ public static class ClockSource
     /// The date is the only label here that changes, and it sits at the right-hand end where a width change would
     /// push every other reading sideways. Built from the longest weekday name rather than today's.
     /// </summary>
-    private static string WidestDate()
-    {
-        var day = CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames
-            .Where(name => name.Length > 0)
-            .OrderByDescending(name => name.Length)
-            .FirstOrDefault() ?? string.Empty;
-
-        return $"{day} 30";
-    }
+    private static string WidestDate() => "WWW 30";
 
     private static string EnglishDay(DayOfWeek day) =>
         CultureInfo.InvariantCulture.DateTimeFormat.AbbreviatedDayNames[(int)day];

@@ -600,12 +600,17 @@ internal sealed class SettingsForm : Form
         for (var index = 0; index < SyncProviderCatalog.BuiltIn.Count; index++)
         {
             var providerId = SyncProviderCatalog.BuiltIn[index];
+            var unavailable = _unavailableItems.Contains(SyncStatusSource.KindFor(providerId));
             layout.Controls.Add(new Label
             {
                 Text = SyncProviderCatalog.DisplayName(providerId),
                 AutoSize = true,
-                Anchor = AnchorStyles.Left
+                Anchor = AnchorStyles.Left,
+                Enabled = !unavailable,
+                ForeColor = unavailable ? SystemColors.GrayText : layout.ForeColor
             }, 0, index + 1);
+            _syncGoodAlerts[providerId].Enabled = !unavailable;
+            _syncAttentionAlerts[providerId].Enabled = !unavailable;
             layout.Controls.Add(_syncGoodAlerts[providerId], 1, index + 1);
             layout.Controls.Add(_syncAttentionAlerts[providerId], 2, index + 1);
         }
