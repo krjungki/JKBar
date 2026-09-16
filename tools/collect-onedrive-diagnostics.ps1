@@ -562,17 +562,17 @@ function Get-EventMetadata {
             Where-Object { $_ -match '(?i)(OneDrive|CloudFiles)' })
         foreach ($logName in $logNames) {
             try {
-                foreach ($eventRecord in @(Get-WinEvent -LogName $logName -MaxEvents 200 -ErrorAction Stop)) {
-                    if ($null -eq $eventRecord.TimeCreated) { continue }
-                    $time = [DateTimeOffset]$eventRecord.TimeCreated
+                foreach ($logEntry in @(Get-WinEvent -LogName $logName -MaxEvents 200 -ErrorAction Stop)) {
+                    if ($null -eq $logEntry.TimeCreated) { continue }
+                    $time = [DateTimeOffset]$logEntry.TimeCreated
                     if ($time -lt $From -or $time -gt $To) { continue }
                     $rows.Add([pscustomobject]@{
                         TimeCreatedUtc = $time.ToUniversalTime().ToString('O')
                         LogName = $logName
-                        ProviderName = $eventRecord.ProviderName
-                        EventId = $eventRecord.Id
-                        Level = $eventRecord.LevelDisplayName
-                        RecordId = $eventRecord.RecordId
+                        ProviderName = $logEntry.ProviderName
+                        EventId = $logEntry.Id
+                        Level = $logEntry.LevelDisplayName
+                        RecordId = $logEntry.RecordId
                     })
                 }
             }
@@ -692,7 +692,7 @@ do {
 } while ([DateTimeOffset]::UtcNow -lt $collectionEnds.AddMilliseconds(100))
 
 $collectionFinished = [DateTimeOffset]::UtcNow
-$eventRows = @(Get-EventMetadata -From $collectionStarted.AddMinutes(-5) -To $collectionFinished.AddMinutes(1))
+$metadataRows = @(Get-EventMetadata -From $collectionStarted.AddMinutes(-5) -To $collectionFinished.AddMinutes(1))
 $oneDriveProcesses = @(Get-OneDriveProcesses)
 $resolvedJKBarPath = Find-JKBarPath
 $jkBarIdentity = Get-FileIdentity -Path $resolvedJKBarPath -IncludeHash $true
@@ -735,7 +735,7 @@ $summary = [ordered]@{
     Results = [ordered]@{
         ActivitySampleCount = $activityRows.Count
         RootSampleCount = $rootRows.Count
-        EventMetadataCount = $eventRows.Count
+        EventMetadataCount = $metadataRows.Count
         ActivityGateTrueSamples = $activityGateSamples
         ComputedRedSamples = $computedRedSamples
         MaximumRateKiBps = [Math]::Round($maxRateKiBps, 3)
@@ -762,7 +762,7 @@ try {
         Set-Content -LiteralPath (Join-Path $workingDirectory 'summary.json') -Encoding UTF8
     $activityRows | Export-Csv -LiteralPath (Join-Path $workingDirectory 'activity.csv') -NoTypeInformation -Encoding UTF8
     $rootRows | Export-Csv -LiteralPath (Join-Path $workingDirectory 'sync-root-samples.csv') -NoTypeInformation -Encoding UTF8
-    $eventRows | Export-Csv -LiteralPath (Join-Path $workingDirectory 'event-metadata.csv') -NoTypeInformation -Encoding UTF8
+    $metadataRows | Export-Csv -LiteralPath (Join-Path $workingDirectory 'event-metadata.csv') -NoTypeInformation -Encoding UTF8
 
     @'
 This report contains only the inputs needed to compare OneDrive with JKBar's status estimate.
