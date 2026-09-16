@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="JKBar.Core.Tests" />
     <!-- Only the Windows Desktop framework carries this assembly, and Core must stay free of WinForms. -->
     <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.0" />
   </ItemGroup>

@@ -12,18 +12,49 @@ namespace JKBar.Core.Sync;
 [SupportedOSPlatform("windows")]
 public class OneDriveActivityProbe
 {
+    private readonly int _sessionId;
+
+    public OneDriveActivityProbe() : this(CurrentSessionId())
+    {
+    }
+
+    internal OneDriveActivityProbe(int sessionId)
+    {
+        _sessionId = sessionId;
+    }
+
+    private static int CurrentSessionId()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.SessionId;
+    }
+
+    internal bool IsCurrentSession(Process process)
+    {
+        try
+        {
+            return process.SessionId == _sessionId;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Sync root registrations survive the app being closed, so the process is what proves it is active.</summary>
     public virtual bool IsRunning()
     {
         try
         {
             var processes = Process.GetProcessesByName("OneDrive");
+            var running = false;
             foreach (var process in processes)
             {
+                running |= IsCurrentSession(process);
                 process.Dispose();
             }
 
-            return processes.Length > 0;
+            return running;
         }
         catch (InvalidOperationException)
         {
@@ -48,7 +79,7 @@ public class OneDriveActivityProbe
         {
             try
             {
-                if (NativeMethods.GetProcessIoCounters(process.Handle, out var counters))
+                if (IsCurrentSession(process) && NativeMethods.GetProcessIoCounters(process.Handle, out var counters))
                 {
                     total += counters.ReadTransferCount + counters.WriteTransferCount + counters.OtherTransferCount;
                 }

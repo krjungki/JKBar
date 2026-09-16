@@ -1,6 +1,7 @@
 // Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). Keep behaviour changes in sync with the original.
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Principal;
 using JKBar.Core.Interop;
 using Microsoft.Win32;
 
@@ -154,34 +155,43 @@ public sealed class OneDriveSyncProvider : ISyncProvider
 
     private static List<string> EnumerateSyncRoots()
     {
-        var results = new List<string>();
+        using var identity = WindowsIdentity.GetCurrent();
         using var manager = Registry.LocalMachine.OpenSubKey(SyncRootManagerKey);
         if (manager is null)
+        {
+            return [];
+        }
+
+        return EnumerateSyncRoots(identity.User?.Value, manager.GetSubKeyNames(), name =>
+        {
+            using var userRoots = manager.OpenSubKey($@"{name}\UserSyncRoots");
+            return userRoots?.GetValue(identity.User!.Value);
+        }, Directory.Exists);
+    }
+
+    internal static List<string> EnumerateSyncRoots(
+        string? currentSid, IEnumerable<string> providerNames,
+        Func<string, object?> readCurrentUserRoot, Func<string, bool> pathExists)
+    {
+        var results = new List<string>();
+        if (string.IsNullOrWhiteSpace(currentSid))
         {
             return results;
         }
 
-        foreach (var name in manager.GetSubKeyNames())
+        var prefix = $"OneDrive!{currentSid}!";
+        foreach (var name in providerNames)
         {
-            if (!name.StartsWith("OneDrive", StringComparison.OrdinalIgnoreCase))
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            using var userRoots = manager.OpenSubKey($@"{name}\UserSyncRoots");
-            if (userRoots is null)
+            if (readCurrentUserRoot(name) is string path &&
+                !string.IsNullOrWhiteSpace(path) && pathExists(path) &&
+                !results.Contains(path, StringComparer.OrdinalIgnoreCase))
             {
-                continue;
-            }
-
-            foreach (var valueName in userRoots.GetValueNames())
-            {
-                if (userRoots.GetValue(valueName) is string path &&
-                    !string.IsNullOrWhiteSpace(path) &&
-                    Directory.Exists(path))
-                {
-                    results.Add(path);
-                }
+                results.Add(path);
             }
         }
 
