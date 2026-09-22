@@ -47,20 +47,25 @@ public sealed class SyncStatusWatcher
 
     private static NotchAlert Alert(SyncProviderSnapshot snapshot, BandItemBadge badge)
     {
-        var good = badge == BandItemBadge.Good;
+        var (key, state, severity) = badge switch
+        {
+            BandItemBadge.Good => ("good", "정상", AlertSeverity.Done),
+            BandItemBadge.Synchronizing => ("synchronizing", "동기화 중", AlertSeverity.Change),
+            _ => ("attention", "주의", AlertSeverity.Warning)
+        };
 
         return new NotchAlert(
             AlertCategory.Sync,
-            $"sync.{snapshot.ProviderId}.{(good ? "good" : "attention")}",
-            $"{SyncProviderCatalog.DisplayName(snapshot.ProviderId)} {(good ? "정상" : "주의")}",
+            $"sync.{snapshot.ProviderId}.{key}",
+            $"{SyncProviderCatalog.DisplayName(snapshot.ProviderId)} {state}",
             Describe(snapshot.State),
-            good ? AlertSeverity.Done : AlertSeverity.Warning,
+            severity,
             Cooldown);
     }
 
     public static string Describe(SyncState state) => state switch
     {
-        SyncState.Synchronizing => "동기화 중입니다",
+        SyncState.Synchronizing => "동기화가 진행 중입니다",
         SyncState.UpToDate => "최신 상태입니다",
         SyncState.Error => "오류가 보고되었습니다",
         _ => "상태를 확인할 수 없습니다"

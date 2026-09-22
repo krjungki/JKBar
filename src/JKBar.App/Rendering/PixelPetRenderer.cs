@@ -158,8 +158,8 @@ internal static class PixelPetRenderer
             FormatFlags = StringFormatFlags.NoWrap,
             Trimming = StringTrimming.EllipsisCharacter
         };
-        var measured = graphics.MeasureString(message, font, PointF.Empty, format);
-        var width = Math.Min(available, (int)Math.Ceiling(measured.Width) + margin * 2);
+        var measured = DirectWriteText.Measure(message, font);
+        var width = Math.Min(available, (int)Math.Ceiling(measured) + margin * 2);
         var height = Math.Min(metrics.Height - margin * 2, (int)Math.Ceiling(font.GetHeight(graphics)) + pixel * 4);
         var left = onRight ? pet.Right + gap : pet.Left - gap - width;
         var top = margin;
@@ -169,7 +169,14 @@ internal static class PixelPetRenderer
         graphics.FillRectangle(paper, left, top + pixel, width, height - pixel * 2);
         var tailLeft = onRight ? left - pixel * 2 : left + width;
         graphics.FillRectangle(paper, tailLeft, top + height - pixel * 4, pixel * 2, pixel * 2);
-        graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-        graphics.DrawString(message, font, ink, new RectangleF(left + margin, top, width - margin * 2, height), format);
+        DirectWriteText.Draw(
+            graphics,
+            message,
+            font,
+            ink.Color,
+            new RectangleF(left + margin, top, width - margin * 2, height),
+            format.Alignment,
+            format.LineAlignment,
+            ellipsis: true);
     }
 }

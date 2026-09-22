@@ -4,6 +4,7 @@
     <Project Path="src/JKBar.Core/JKBar.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/JKBar.App.Tests/JKBar.App.Tests.csproj" />
     <Project Path="tests/JKBar.Core.Tests/JKBar.Core.Tests.csproj" />
   </Folder>
 </Solution>

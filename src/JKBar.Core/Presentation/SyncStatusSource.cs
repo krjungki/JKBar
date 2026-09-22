@@ -6,7 +6,7 @@ namespace JKBar.Core.Presentation;
 
 public static class SyncStatusSource
 {
-    public static readonly Color Synchronizing = Color.FromArgb(38, 103, 196);
+    public static readonly Color Synchronizing = Color.FromArgb(255, 185, 0);
     public static readonly Color UpToDate = Color.FromArgb(32, 128, 88);
     public static readonly Color Faulted = Color.FromArgb(218, 48, 57);
     public static readonly Color Indeterminate = Color.FromArgb(122, 122, 130);
@@ -28,8 +28,12 @@ public static class SyncStatusSource
             Badge: BadgeFor(snapshot.State));
     }
 
-    public static BandItemBadge BadgeFor(SyncState state) =>
-        state == SyncState.UpToDate ? BandItemBadge.Good : BandItemBadge.Attention;
+    public static BandItemBadge BadgeFor(SyncState state) => state switch
+    {
+        SyncState.UpToDate => BandItemBadge.Good,
+        SyncState.Synchronizing => BandItemBadge.Synchronizing,
+        _ => BandItemBadge.Attention
+    };
 
     public static IReadOnlyList<BandItem> Items(IEnumerable<SyncProviderSnapshot> snapshots) =>
         [.. snapshots.Select(Item).OfType<BandItem>()];

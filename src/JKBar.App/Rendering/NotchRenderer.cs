@@ -139,7 +139,7 @@ internal static class NotchRenderer
         float reserved)
     {
         var available = Math.Max(1f, area.Width - reserved);
-        var widest = lines.Max(line => g.MeasureString(line.Text, line.Font, new SizeF(available, area.Height), format).Width);
+        var widest = lines.Max(line => DirectWriteText.Measure(line.Text, line.Font));
 
         return Math.Min(available, widest + 2f);
     }
@@ -156,10 +156,26 @@ internal static class NotchRenderer
         if (typography.TextShadow)
         {
             using var shadow = new SolidBrush(BandRenderer.ShadowColourFor(brush.Color));
-            g.DrawString(text, font, shadow, new RectangleF(area.X + 1, area.Y + 1, area.Width, area.Height), format);
+            DirectWriteText.Draw(
+                g,
+                text,
+                font,
+                shadow.Color,
+                new RectangleF(area.X + 1, area.Y + 1, area.Width, area.Height),
+                format.Alignment,
+                format.LineAlignment,
+                format.Trimming == StringTrimming.EllipsisCharacter);
         }
 
-        g.DrawString(text, font, brush, area, format);
+        DirectWriteText.Draw(
+            g,
+            text,
+            font,
+            brush.Color,
+            area,
+            format.Alignment,
+            format.LineAlignment,
+            format.Trimming == StringTrimming.EllipsisCharacter);
     }
 
     private static Font CreateFont(string family, float size, FontStyle style)

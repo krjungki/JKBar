@@ -595,7 +595,7 @@ internal sealed class SettingsForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.Controls.Add(new Label { AutoSize = true }, 0, 0);
         layout.Controls.Add(new Label { Text = "정상", AutoSize = true, Anchor = AnchorStyles.None }, 1, 0);
-        layout.Controls.Add(new Label { Text = "주의 필요", AutoSize = true, Anchor = AnchorStyles.None }, 2, 0);
+        layout.Controls.Add(new Label { Text = "동기화/주의", AutoSize = true, Anchor = AnchorStyles.None }, 2, 0);
 
         for (var index = 0; index < SyncProviderCatalog.BuiltIn.Count; index++)
         {

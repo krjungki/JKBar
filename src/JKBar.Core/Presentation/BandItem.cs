@@ -46,7 +46,8 @@ public enum BandItemBadge
 {
     None,
     Attention,
-    Good
+    Good,
+    Synchronizing
 }
 
 /// <param name="Accent">Null leaves the colour to the renderer, which picks for contrast against the band.</param>

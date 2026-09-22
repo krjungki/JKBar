@@ -25,11 +25,11 @@ public class SyncStatusSourceTests
     }
 
     [Fact]
-    public void MarksAHealthyProviderAndFlagsEveryOtherState()
+    public void DistinguishesHealthySynchronizingAndAttentionStates()
     {
         Assert.Equal(BandItemBadge.Good, SyncStatusSource.Item(Snapshot(SyncState.UpToDate))?.Badge);
         Assert.Equal(BandItemBadge.Attention, SyncStatusSource.Item(Snapshot(SyncState.Error))?.Badge);
-        Assert.Equal(BandItemBadge.Attention, SyncStatusSource.Item(Snapshot(SyncState.Synchronizing))?.Badge);
+        Assert.Equal(BandItemBadge.Synchronizing, SyncStatusSource.Item(Snapshot(SyncState.Synchronizing))?.Badge);
         Assert.Equal(BandItemBadge.Attention, SyncStatusSource.Item(Snapshot(SyncState.Unknown))?.Badge);
     }
 
@@ -49,6 +49,7 @@ public class SyncStatusSourceTests
             .ToArray();
 
         Assert.Equal(colours.Length, colours.Distinct().Count());
+        Assert.Equal(Color.FromArgb(255, 185, 0), SyncStatusSource.ColourFor(SyncState.Synchronizing));
     }
 
     [Theory]

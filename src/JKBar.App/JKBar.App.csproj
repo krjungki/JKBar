@@ -39,6 +39,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="JKBar.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Assets\default-band-image.png" LogicalName="JKBar.App.Assets.default-band-image.png" />
     <!-- Hand-drawn pet frames ship inside the assembly so a portable copy stays a single executable. -->
     <EmbeddedResource Include="Assets\pet-dog.png" LogicalName="JKBar.App.Assets.pet-dog.png" />

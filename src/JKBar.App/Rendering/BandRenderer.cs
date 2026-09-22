@@ -27,6 +27,8 @@ internal static class BandRenderer
     private static readonly Color StatusIconInk = Color.FromArgb(250, 250, 252);
     private static readonly Color BadgeAttention = Color.FromArgb(218, 48, 57);
     private static readonly Color BadgeGood = Color.FromArgb(32, 145, 88);
+    private static readonly Color BadgeSynchronizing = Color.FromArgb(255, 185, 0);
+    private static readonly Color BadgeSynchronizingInk = Color.FromArgb(36, 36, 40);
     private const float StatusIconShareOfHeight = 0.66f;
     private const float BadgeShareOfIcon = 0.62f;
     private const float BadgeOverhangShareOfBadge = 0.4f;
@@ -203,7 +205,7 @@ internal static class BandRenderer
         }
 
         using var format = LeftTextFormat();
-        var measured = (int)Math.Ceiling(g.MeasureString(name, font, available, format).Width) + 2;
+        var measured = (int)Math.Ceiling(DirectWriteText.Measure(name, font)) + 2;
         Write(g, name, font, format, ink, new RectangleF(left, slot.Top, Math.Min(available, measured), slot.Height));
     }
 
@@ -325,7 +327,7 @@ internal static class BandRenderer
         var text = NewsPresentation.Headline(news, TimeZoneInfo.Local, CultureInfo.CurrentCulture);
         using var format = LeftTextFormat();
 
-        var measured = (int)Math.Ceiling(g.MeasureString(text, font, box.Width, format).Width) + 2;
+        var measured = (int)Math.Ceiling(DirectWriteText.Measure(text, font)) + 2;
         var width = Math.Min(box.Width, measured);
 
         // Held against the right edge so the headline reads as one group with the quote beside it.
@@ -879,11 +881,19 @@ internal static class BandRenderer
         using var centred = (StringFormat)format.Clone();
         centred.Alignment = StringAlignment.Center;
         centred.LineAlignment = StringAlignment.Center;
-        g.DrawString(item.Label, letterFont, letter, circle, centred);
+        DirectWriteText.Draw(
+            g,
+            item.Label,
+            letterFont,
+            letter.Color,
+            circle,
+            centred.Alignment,
+            centred.LineAlignment,
+            ellipsis: false);
     }
 
     /// <summary>The marks are drawn as shapes: a glyph this small turns to mush at band sizes.</summary>
-    private static void DrawStatusBadge(Graphics g, RectangleF circle, int iconDiameter, BandItemBadge badge)
+    internal static void DrawStatusBadge(Graphics g, RectangleF circle, int iconDiameter, BandItemBadge badge)
     {
         var size = BadgeDiameter(iconDiameter);
         // Perched on the corner so the artwork underneath stays recognisable.
@@ -898,7 +908,12 @@ internal static class BandRenderer
         // The ring keeps the badge readable against both the artwork and the colour it sits on.
         g.FillEllipse(mark, bounds);
 
-        using var background = new SolidBrush(badge == BandItemBadge.Good ? BadgeGood : BadgeAttention);
+        using var background = new SolidBrush(badge switch
+        {
+            BandItemBadge.Good => BadgeGood,
+            BandItemBadge.Synchronizing => BadgeSynchronizing,
+            _ => BadgeAttention
+        });
         g.FillEllipse(background, RectangleF.Inflate(bounds, -ring, -ring));
 
         var inner = size - (2f * ring);
@@ -906,6 +921,10 @@ internal static class BandRenderer
         if (badge == BandItemBadge.Good)
         {
             DrawCheckMark(g, origin, inner);
+        }
+        else if (badge == BandItemBadge.Synchronizing)
+        {
+            DrawSynchronizingMark(g, origin, inner);
         }
         else
         {
@@ -927,6 +946,52 @@ internal static class BandRenderer
             new PointF(origin.X + (inner * 0.24f), origin.Y + (inner * 0.52f)),
             new PointF(origin.X + (inner * 0.43f), origin.Y + (inner * 0.71f)),
             new PointF(origin.X + (inner * 0.78f), origin.Y + (inner * 0.30f))
+        ]);
+    }
+
+    private static void DrawSynchronizingMark(Graphics g, PointF origin, float inner)
+    {
+        var stroke = Math.Max(1.25f, inner * 0.14f);
+        using var pen = new Pen(BadgeSynchronizingInk, stroke)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round
+        };
+        using var arrow = new SolidBrush(BadgeSynchronizingInk);
+        var inset = inner * 0.17f;
+        var orbit = new RectangleF(origin.X + inset, origin.Y + inset, inner - (2f * inset), inner - (2f * inset));
+
+        DrawCircularArrow(g, pen, arrow, orbit, 205f, 145f, inner);
+        DrawCircularArrow(g, pen, arrow, orbit, 25f, 145f, inner);
+    }
+
+    private static void DrawCircularArrow(
+        Graphics g,
+        Pen pen,
+        Brush arrow,
+        RectangleF orbit,
+        float startAngle,
+        float sweepAngle,
+        float inner)
+    {
+        g.DrawArc(pen, orbit, startAngle, sweepAngle);
+
+        var endAngle = (startAngle + sweepAngle) * MathF.PI / 180f;
+        var centre = new PointF(orbit.Left + (orbit.Width / 2f), orbit.Top + (orbit.Height / 2f));
+        var tip = new PointF(
+            centre.X + (MathF.Cos(endAngle) * orbit.Width / 2f),
+            centre.Y + (MathF.Sin(endAngle) * orbit.Height / 2f));
+        var tangent = new PointF(-MathF.Sin(endAngle), MathF.Cos(endAngle));
+        var normal = new PointF(-tangent.Y, tangent.X);
+        var length = Math.Max(2f, inner * 0.25f);
+        var halfWidth = Math.Max(1.25f, inner * 0.16f);
+        var basePoint = new PointF(tip.X - (tangent.X * length), tip.Y - (tangent.Y * length));
+
+        g.FillPolygon(arrow,
+        [
+            tip,
+            new PointF(basePoint.X + (normal.X * halfWidth), basePoint.Y + (normal.Y * halfWidth)),
+            new PointF(basePoint.X - (normal.X * halfWidth), basePoint.Y - (normal.Y * halfWidth))
         ]);
     }
 
@@ -1011,17 +1076,29 @@ internal static class BandRenderer
 
     private static void Write(Graphics g, string text, Font font, StringFormat format, Ink ink, RectangleF bounds)
     {
-        if (ink.Shadow is not null)
+        if (ink.Shadow is SolidBrush shadow)
         {
-            g.DrawString(
+            DirectWriteText.Draw(
+                g,
                 text,
                 font,
-                ink.Shadow,
+                shadow.Color,
                 new RectangleF(bounds.X + 1, bounds.Y + 1, bounds.Width, bounds.Height),
-                format);
+                format.Alignment,
+                format.LineAlignment,
+                format.Trimming == StringTrimming.EllipsisCharacter);
         }
 
-        g.DrawString(text, font, ink.Foreground, bounds, format);
+        var foreground = ink.Foreground is SolidBrush solid ? solid.Color : ink.Colour;
+        DirectWriteText.Draw(
+            g,
+            text,
+            font,
+            foreground,
+            bounds,
+            format.Alignment,
+            format.LineAlignment,
+            format.Trimming == StringTrimming.EllipsisCharacter);
     }
 
     /// <summary>A shadow only helps when it contrasts with the glyphs, so it flips with the chosen text colour.</summary>
@@ -1074,5 +1151,5 @@ internal static class BandRenderer
     }
 
     private static int Measure(Graphics g, string s, Font font, StringFormat format) =>
-        (int)Math.Ceiling(g.MeasureString(s, font, PointF.Empty, format).Width);
+        (int)Math.Ceiling(DirectWriteText.Measure(s, font));
 }

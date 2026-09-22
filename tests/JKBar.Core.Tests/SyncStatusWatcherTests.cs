@@ -1,5 +1,6 @@
 using JKBar.Core.Alerts;
 using JKBar.Core.Presentation;
+using JKBar.Core.Settings;
 using JKBar.Core.Sync;
 
 namespace JKBar.Core.Tests;
@@ -56,25 +57,60 @@ public sealed class SyncStatusWatcherTests
     }
 
     [Fact]
-    public void TreatsEveryStateThatIsNotUpToDateAsOneBadge()
+    public void AnnouncesRecoveryAfterSynchronizationCompletes()
     {
         var watcher = new SyncStatusWatcher();
-        watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Error)], AllEnabled);
+        watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Synchronizing)], AllEnabled);
 
-        // Both are the red badge, so moving between them is not a change the user can see.
-        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
+        var alert = Assert.Single(
+            watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.UpToDate)], AllEnabled));
+
+        Assert.Equal("sync.onedrive.good", alert.Key);
+        Assert.Equal("OneDrive 정상", alert.Title);
+        Assert.Equal("최신 상태입니다", alert.Detail);
+        Assert.Equal(AlertSeverity.Done, alert.Severity);
+    }
+
+    [Fact]
+    public void AnnouncesSynchronizationAsAChangeInsteadOfAWarning()
+    {
+        var watcher = new SyncStatusWatcher();
+        watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.UpToDate)], AllEnabled);
+
+        var alert = Assert.Single(
+            watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
+
+        Assert.Equal("sync.syncthing.synchronizing", alert.Key);
+        Assert.Equal("Syncthing 동기화 중", alert.Title);
+        Assert.Equal("동기화가 진행 중입니다", alert.Detail);
+        Assert.Equal(AlertSeverity.Change, alert.Severity);
     }
 
     [Fact]
     public void StaysQuietForAMutedAttentionState()
     {
         var watcher = new SyncStatusWatcher();
-        Func<string, BandItemBadge, bool> withoutOneDriveAttention =
-            (providerId, badge) => providerId != SyncProviderCatalog.OneDrive || badge != BandItemBadge.Attention;
+        var settings = new SyncAlertSettings { MutedAttentionProviders = [SyncProviderCatalog.OneDrive] };
 
-        watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.UpToDate)], withoutOneDriveAttention);
+        watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.UpToDate)], settings.Allows);
 
-        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Error)], withoutOneDriveAttention));
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Error)], settings.Allows));
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Synchronizing)], settings.Allows));
+    }
+
+    [Fact]
+    public void AnnouncesAWarningWhenSynchronizationTurnsIntoAnError()
+    {
+        var watcher = new SyncStatusWatcher();
+        watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Synchronizing)], AllEnabled);
+
+        var alert = Assert.Single(
+            watcher.Observe([Snapshot(SyncProviderCatalog.OneDrive, SyncState.Error)], AllEnabled));
+
+        Assert.Equal("sync.onedrive.attention", alert.Key);
+        Assert.Equal("OneDrive 주의", alert.Title);
+        Assert.Equal("오류가 보고되었습니다", alert.Detail);
+        Assert.Equal(AlertSeverity.Warning, alert.Severity);
     }
 
     [Fact]
