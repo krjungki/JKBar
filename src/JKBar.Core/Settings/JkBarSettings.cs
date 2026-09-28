@@ -152,6 +152,16 @@ public sealed record BandItemsSettings
     /// <summary>Null leaves the graphs the colour of the text beside them.</summary>
     public int? GraphColourArgb { get; init; }
 
+    /// <summary>
+    /// Gap between any two neighbouring performance readouts or service icons, including where the groups meet, as a
+    /// share of the standard gap.
+    /// </summary>
+    public int MetricIconSpacingPercent { get; init; } = 100;
+
+    public ClockSettings Clock { get; init; } = new();
+
+    public const int MaximumSpacingPercent = 500;
+
     public BandItemsSettings Normalized()
     {
         var order = (Order ?? [])
@@ -174,7 +184,9 @@ public sealed record BandItemsSettings
             Order = order,
             Hidden = hidden,
             PercentStyles = styles,
-            GraphColourArgb = GraphColourArgb is { } argb ? argb | unchecked((int)0xFF000000) : null
+            GraphColourArgb = GraphColourArgb is { } argb ? argb | unchecked((int)0xFF000000) : null,
+            MetricIconSpacingPercent = Math.Clamp(MetricIconSpacingPercent, 0, MaximumSpacingPercent),
+            Clock = Clock ?? new ClockSettings()
         };
     }
 
@@ -221,18 +233,38 @@ public sealed record BandItemStyle
     public BandPercentStyle Style { get; init; }
 }
 
+/// <summary>Which parts of the band clock are shown, and whether the date sits under the time like the Windows clock.</summary>
+public sealed record ClockSettings
+{
+    public bool ShowWeekday { get; init; } = true;
+    public bool ShowDay { get; init; } = true;
+    public bool ShowTime { get; init; } = true;
+    public bool TwoLines { get; init; }
+}
+
 public sealed record BandTypographySettings
 {
-    public const string DefaultFontFamily = "Segoe UI";
-    public const int DefaultFontSizePercent = 38;
+    /// <summary>Bundled inside JKBar, so it renders whether or not it is installed.</summary>
+    public const string DefaultFontFamily = "Pretendard SemiBold";
+
+    /// <summary>Installed with Windows, for the few places GDI+ draws text itself and cannot use a bundled font.</summary>
+    public const string FallbackFontFamily = "Segoe UI";
+
+    /// <summary>10 pt in the font dialog, which maps 24 pt to 100%.</summary>
+    public const int DefaultFontSizePercent = 42;
+
     public const int DefaultTextColourArgb = unchecked((int)0xFF18181B);
+
+    /// <summary>Settings below this revision predate the bundled font and are moved onto it once.</summary>
+    public const int CurrentFontRevision = 1;
 
     public string FontFamily { get; init; } = DefaultFontFamily;
     public int FontSizePercent { get; init; } = DefaultFontSizePercent;
-    public bool Bold { get; init; } = true;
+    public bool Bold { get; init; }
     public bool Italic { get; init; }
     public bool TextShadow { get; init; }
     public int TextColourArgb { get; init; } = DefaultTextColourArgb;
+    public int FontRevision { get; init; }
 
     public BandTypographySettings Normalized() => this with
     {
@@ -240,6 +272,19 @@ public sealed record BandTypographySettings
         FontSizePercent = Math.Clamp(FontSizePercent, 25, 60),
         TextColourArgb = TextColourArgb | unchecked((int)0xFF000000)
     };
+
+    /// <summary>Colour and shadow are the user's; the face, weight and size are replaced by the new default.</summary>
+    public BandTypographySettings Migrated() =>
+        FontRevision >= CurrentFontRevision
+            ? this
+            : this with
+            {
+                FontFamily = DefaultFontFamily,
+                FontSizePercent = DefaultFontSizePercent,
+                Bold = false,
+                Italic = false,
+                FontRevision = CurrentFontRevision
+            };
 }
 
 public sealed record NewsSettings

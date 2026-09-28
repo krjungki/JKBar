@@ -38,6 +38,13 @@ internal sealed class JkBarContext : ApplicationContext
     internal JkBarContext()
     {
         _settings = _settingsStore.Load();
+        var typography = _settings.Typography.Migrated();
+        if (typography != _settings.Typography)
+        {
+            _settings = _settings with { Typography = typography };
+            _settingsStore.Save(_settings);
+        }
+
         var (icon, handle) = TrayIconFactory.Create();
         _iconHandle = handle;
 
@@ -465,7 +472,9 @@ internal sealed class JkBarContext : ApplicationContext
         first.Order.SequenceEqual(second.Order)
         && first.Hidden.SequenceEqual(second.Hidden)
         && first.PercentStyles.SequenceEqual(second.PercentStyles)
-        && first.GraphColourArgb == second.GraphColourArgb;
+        && first.GraphColourArgb == second.GraphColourArgb
+        && first.MetricIconSpacingPercent == second.MetricIconSpacingPercent
+        && first.Clock == second.Clock;
 
     private static bool SyncAlertsMatch(SyncAlertSettings first, SyncAlertSettings second) =>
         first.MutedGoodProviders.SequenceEqual(second.MutedGoodProviders)

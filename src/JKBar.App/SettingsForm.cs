@@ -69,6 +69,13 @@ internal sealed class SettingsForm : Form
     private readonly Label _alertFontSizeValue = new() { AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly TrackBar _imageScale = new() { Minimum = 6, Maximum = 20, TickFrequency = 2, Width = 220 };
     private readonly Label _imageScaleValue = new() { AutoSize = true, Anchor = AnchorStyles.Left };
+    // Ten percent a tick, up to five times the standard gap.
+    private readonly TrackBar _metricIconSpacing = new() { Minimum = 0, Maximum = 50, TickFrequency = 5, Width = 280 };
+    private readonly Label _metricIconSpacingValue = new() { AutoSize = true, Anchor = AnchorStyles.Left };
+    private readonly CheckBox _clockWeekday = new() { Text = "요일", AutoSize = true };
+    private readonly CheckBox _clockDay = new() { Text = "일자", AutoSize = true };
+    private readonly CheckBox _clockTime = new() { Text = "시간", AutoSize = true };
+    private readonly CheckBox _clockTwoLines = new() { Text = "시간 아래에 날짜 (2줄)", AutoSize = true };
     private readonly ListView _items = new()
     {
         Dock = DockStyle.Fill,
@@ -236,6 +243,28 @@ internal sealed class SettingsForm : Form
             RaisePreview();
         };
         UpdateImageScaleSummary();
+        _metricIconSpacing.Value = Math.Clamp((int)Math.Round(normalized.BandItems.MetricIconSpacingPercent / 10d), 0, 50);
+        _metricIconSpacing.ValueChanged += (_, _) =>
+        {
+            UpdateSpacingSummary();
+            RaisePreview();
+        };
+
+        UpdateSpacingSummary();
+        _clockWeekday.Checked = normalized.BandItems.Clock.ShowWeekday;
+        _clockDay.Checked = normalized.BandItems.Clock.ShowDay;
+        _clockTime.Checked = normalized.BandItems.Clock.ShowTime;
+        _clockTwoLines.Checked = normalized.BandItems.Clock.TwoLines;
+        foreach (var box in new[] { _clockWeekday, _clockDay, _clockTime, _clockTwoLines })
+        {
+            box.CheckedChanged += (_, _) =>
+            {
+                UpdateClockTwoLinesState();
+                RaisePreview();
+            };
+        }
+
+        UpdateClockTwoLinesState();
         _imagePath.Text = normalized.Appearance.ImagePath ?? string.Empty;
         _textShadow.Checked = normalized.Typography.TextShadow;
         _adaptiveAppearance.Checked = normalized.Appearance.AdaptiveAppearance;
@@ -521,10 +550,18 @@ internal sealed class SettingsForm : Form
         var fontRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
         var chooseFont = new Button { Text = "글꼴 및 글자색...", AutoSize = true };
         chooseFont.Click += (_, _) => ChooseTypography();
+        var defaultFont = new Button { Text = "기본 글꼴", AutoSize = true };
+        defaultFont.Click += (_, _) =>
+        {
+            _typography = (_typography with { FontRevision = 0 }).Migrated();
+            UpdateFontSummary();
+            RaisePreview();
+        };
         _textSwatch.Margin = new Padding(3, 3, 10, 3);
         fontRow.Controls.Add(_fontSummary);
         fontRow.Controls.Add(_textSwatch);
         fontRow.Controls.Add(chooseFont);
+        fontRow.Controls.Add(defaultFont);
         _textShadow.Margin = new Padding(12, 7, 3, 3);
         fontRow.Controls.Add(_textShadow);
 
@@ -584,10 +621,19 @@ internal sealed class SettingsForm : Form
         AddRow(appearance, "Bar 폰트", fontRow);
         AddFiller(appearance);
 
+        var clockRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
+        clockRow.Controls.Add(_clockWeekday);
+        clockRow.Controls.Add(_clockDay);
+        clockRow.Controls.Add(_clockTime);
+        _clockTwoLines.Margin = new Padding(12, 3, 3, 3);
+        clockRow.Controls.Add(_clockTwoLines);
+
         var items = FormGrid();
         AddRow(items, "성능 카운터 갱신(초)", _metricsRefresh);
         AddRow(items, "성능 카운터 표시 방식", _percentStyle);
         AddRow(items, "성능 카운터 그래프 색", graphColourRow);
+        AddRow(items, "성능 카운터·서비스 아이콘 간격", SliderRow(_metricIconSpacing, _metricIconSpacingValue));
+        AddRow(items, "시계 표시", clockRow);
         AddRow(items, "내장 앱 확장 알림", BuildSyncAlertOptions());
         AddRow(items, "오른쪽 표시 항목", itemLayout, fill: true);
 
@@ -643,6 +689,12 @@ internal sealed class SettingsForm : Form
     private void UpdateAlertFontSummary() => _alertFontSizeValue.Text = $"{_alertFontSize.Value * 5}%";
 
     private void UpdateImageScaleSummary() => _imageScaleValue.Text = $"{_imageScale.Value * 5}%";
+
+    private void UpdateSpacingSummary() => _metricIconSpacingValue.Text = $"{_metricIconSpacing.Value * 10}%";
+
+    // Two rows need both a time and a date to stack; the choice is kept but greyed out otherwise.
+    private void UpdateClockTwoLinesState() =>
+        _clockTwoLines.Enabled = _clockTime.Checked && (_clockWeekday.Checked || _clockDay.Checked);
 
     private Control BuildContentTab()
     {
@@ -1147,13 +1199,23 @@ internal sealed class SettingsForm : Form
             return;
         }
 
+        // The bundled font is not installed, so the dialog shows a stand-in; picking that stand-in back keeps the bundled one.
+        var family = dialog.Font.FontFamily.Name;
+        if (!string.Equals(initial.FontFamily.Name, _typography.FontFamily, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(family, initial.FontFamily.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            family = _typography.FontFamily;
+        }
+
         _typography = new BandTypographySettings
         {
-            FontFamily = dialog.Font.FontFamily.Name,
+            FontFamily = family,
             FontSizePercent = (int)Math.Round(dialog.Font.SizeInPoints / 24f * 100),
             Bold = dialog.Font.Bold,
             Italic = dialog.Font.Italic,
-            TextColourArgb = dialog.Color.ToArgb()
+            TextColourArgb = dialog.Color.ToArgb(),
+            TextShadow = _typography.TextShadow,
+            FontRevision = BandTypographySettings.CurrentFontRevision
         }.Normalized();
         UpdateFontSummary();
         RaisePreview();
@@ -1203,7 +1265,15 @@ internal sealed class SettingsForm : Form
             PercentStyles = _percentStyles
                 .Select(pair => new BandItemStyle { Kind = pair.Key, Style = pair.Value })
                 .ToArray(),
-            GraphColourArgb = _graphFollowsText.Checked ? null : _selectedGraphColour.ToArgb()
+            GraphColourArgb = _graphFollowsText.Checked ? null : _selectedGraphColour.ToArgb(),
+            MetricIconSpacingPercent = _metricIconSpacing.Value * 10,
+            Clock = new ClockSettings
+            {
+                ShowWeekday = _clockWeekday.Checked,
+                ShowDay = _clockDay.Checked,
+                ShowTime = _clockTime.Checked,
+                TwoLines = _clockTwoLines.Checked
+            }
         };
     }
 
@@ -1288,7 +1358,7 @@ internal sealed class SettingsForm : Form
         }
         catch (ArgumentException)
         {
-            return new Font(BandTypographySettings.DefaultFontFamily, sizeInPoints, style, GraphicsUnit.Point);
+            return new Font(BandTypographySettings.FallbackFontFamily, sizeInPoints, style, GraphicsUnit.Point);
         }
     }
 

@@ -54,7 +54,7 @@ public class ClockSourceTests
         using var bitmap = new Bitmap(1, 1);
         bitmap.SetResolution(168, 168);
         using var graphics = Graphics.FromImage(bitmap);
-        using var font = new Font(BandTypographySettings.DefaultFontFamily, 16, style, GraphicsUnit.Pixel);
+        using var font = new Font(BandTypographySettings.FallbackFontFamily, 16, style, GraphicsUnit.Pixel);
         using var format = StringFormat.GenericTypographic;
         format.FormatFlags |= StringFormatFlags.MeasureTrailingSpaces;
         var yardstick = ClockSource.Item(Noon, CultureInfo.InvariantCulture).LabelYardstick;

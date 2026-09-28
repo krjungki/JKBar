@@ -36,6 +36,7 @@ internal sealed class AppBarReservation : Form
     private int _height;
     private bool _registered;
     private bool _reportedNewsCramped;
+    private BandSpacing _spacing = BandSpacing.Standard;
     private readonly AdaptiveBandAppearance _appearance = new();
 
     /// <summary>Raised after the band takes a new position, so the bar can put itself back above it.</summary>
@@ -131,7 +132,8 @@ internal sealed class AppBarReservation : Form
         IReadOnlyList<BandItem> items,
         IReadOnlyList<RunningProcess> runningProcesses,
         NotchGeometry.Rect notch,
-        int notchCornerRadius)
+        int notchCornerRadius,
+        BandSpacing spacing)
     {
         _image = image;
         _imageScalePercent = imageScalePercent;
@@ -142,6 +144,7 @@ internal sealed class AppBarReservation : Form
         _runningProcesses = runningProcesses;
         _notch = notch;
         _notchCornerRadius = notchCornerRadius;
+        _spacing = spacing;
 
         if (_registered)
         {
@@ -274,7 +277,8 @@ internal sealed class AppBarReservation : Form
                 _items,
                 _runningProcesses,
                 _appearance.Backdrop,
-                look?.Regions);
+                look?.Regions,
+                _spacing);
 
             _imageBounds = areas.Image;
             _newsBounds = areas.News;

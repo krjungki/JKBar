@@ -18,7 +18,8 @@ public class SettingsStoreTests : IDisposable
         Assert.True(settings.News.Enabled);
         Assert.Equal(NewsSettings.DefaultFeedUrl, settings.News.FeedUrl);
         Assert.Equal(BandTypographySettings.DefaultFontFamily, settings.Typography.FontFamily);
-        Assert.True(settings.Typography.Bold);
+        Assert.False(settings.Typography.Bold);
+        Assert.Equal(BandTypographySettings.DefaultFontSizePercent, settings.Typography.FontSizePercent);
         Assert.Equal(BandTypographySettings.DefaultTextColourArgb, settings.Typography.TextColourArgb);
         Assert.Equal(IdleNotchContent.Empty, settings.Notch.IdleContent);
         Assert.Equal(OverlapMode.ReserveTopEdge, settings.Appearance.Overlap);

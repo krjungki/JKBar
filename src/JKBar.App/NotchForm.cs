@@ -406,7 +406,7 @@ internal sealed class NotchForm : Form
         [
             .. MetricsSource.Items(snapshot, _trails),
             .. _syncPoller.Items,
-            ClockSource.Item(now, CultureInfo.CurrentCulture)
+            .. ClockSource.Items(now, CultureInfo.CurrentCulture, _bandItems.Clock)
         ]);
         // Listing every process is only worth doing once the user has actually asked to watch something.
         var runningProcesses = _processWatch.Items.Length == 0
@@ -438,7 +438,8 @@ internal sealed class NotchForm : Form
             items,
             runningProcesses,
             RestingNotchInBand(),
-            resting.BottomCornerRadius);
+            resting.BottomCornerRadius,
+            new BandSpacing(_bandItems.MetricIconSpacingPercent));
     }
 
     /// <summary>The headline the band is showing right now, which is what a click on it means.</summary>

@@ -11,6 +11,9 @@ internal static class DirectWriteText
 
     internal static bool IsAvailable => Engine.Value is not null;
 
+    /// <summary>Whether the bundled Pretendard faces are ready for DirectWrite.</summary>
+    internal static bool HasBundledFont => Engine.Value?.HasBundledFamily() == true;
+
     internal static float Measure(string text, Font font)
     {
         if (text.Length == 0)
@@ -96,7 +99,27 @@ internal sealed class DirectWriteEngine : IDisposable
     private const float MaximumLayout = 100_000f;
 
     private static readonly Guid FactoryId = new("b859ee5a-d838-4b5b-a2e8-1adc7d93db48");
+    private static readonly Guid Factory3Id = new("9A1B41C3-D3BB-466A-87FC-FE67556A3B65");
+    private static readonly Guid Factory5Id = new("958DB99A-BE2A-4F09-AF7D-65189803D1D3");
+
+    /// <summary>The typographic family every bundled face shares; the weight tells them apart.</summary>
+    internal const string BundledFamily = "Pretendard";
+
+    private static readonly (string Suffix, int Weight)[] BundledWeights =
+    [
+        ("", 400),
+        (" Regular", 400),
+        (" Light", 300),
+        (" Medium", 500),
+        (" SemiBold", 600),
+        (" Bold", 700)
+    ];
+
     private IntPtr _factory;
+    private IntPtr _bundledLoader;
+    private IntPtr _bundledCollection;
+    private bool _bundledLoaded;
+    private readonly Lock _bundledLock = new();
     private bool _disposed;
 
     internal DirectWriteEngine()
@@ -231,8 +254,147 @@ internal sealed class DirectWriteEngine : IDisposable
             return;
         }
 
+        DirectWriteInterop.Release(ref _bundledCollection);
+        if (_bundledLoader != IntPtr.Zero)
+        {
+            DirectWriteInterop.Method<DirectWriteInterop.FontFileLoaderDelegate>(_factory, 14)(_factory, _bundledLoader);
+            DirectWriteInterop.Release(ref _bundledLoader);
+        }
+
         DirectWriteInterop.Release(ref _factory);
         _disposed = true;
+    }
+
+    /// <summary>The weight a bundled family name asks for, or null when the name is not one of the bundled faces.</summary>
+    internal static int? BundledWeight(string family)
+    {
+        foreach (var (suffix, weight) in BundledWeights)
+        {
+            if (string.Equals(family, BundledFamily + suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return weight;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>True when the bundled faces loaded and the collection answers to the shared family name.</summary>
+    internal bool HasBundledFamily() => BundledCollection() != IntPtr.Zero;
+
+    private IntPtr BundledCollection()
+    {
+        lock (_bundledLock)
+        {
+            if (_bundledLoaded)
+            {
+                return _bundledCollection;
+            }
+
+            _bundledLoaded = true;
+            try
+            {
+                _bundledCollection = LoadBundledCollection();
+            }
+            catch (Exception exception) when (exception is COMException or InvalidOperationException or IOException)
+            {
+                // Without the bundled faces the name falls through to the system collection like any other font.
+                DirectWriteInterop.Release(ref _bundledCollection);
+            }
+
+            return _bundledCollection;
+        }
+    }
+
+    /// <summary>
+    /// An in-memory loader copies each face out of the executable's resources, so the font works without being
+    /// installed and nothing is written to disk.
+    /// </summary>
+    private IntPtr LoadBundledCollection()
+    {
+        var assembly = typeof(DirectWriteEngine).Assembly;
+        var resources = assembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith("JKBar.App.Assets.Fonts.", StringComparison.Ordinal))
+            .ToArray();
+        if (resources.Length == 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        IntPtr factory3 = IntPtr.Zero, factory5 = IntPtr.Zero, builder = IntPtr.Zero, set = IntPtr.Zero;
+        var collection = IntPtr.Zero;
+        try
+        {
+            var id5 = Factory5Id;
+            var id3 = Factory3Id;
+            DirectWriteInterop.Check(Marshal.QueryInterface(_factory, in id5, out factory5));
+            DirectWriteInterop.Check(Marshal.QueryInterface(_factory, in id3, out factory3));
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateObjectDelegate>(factory5, 44)(
+                factory5,
+                out _bundledLoader));
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.FontFileLoaderDelegate>(_factory, 13)(
+                _factory,
+                _bundledLoader));
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateObjectDelegate>(factory5, 43)(
+                factory5,
+                out builder));
+
+            foreach (var resource in resources)
+            {
+                using var stream = assembly.GetManifestResourceStream(resource)
+                    ?? throw new IOException($"missing resource {resource}");
+                var data = new byte[stream.Length];
+                stream.ReadExactly(data);
+                var pinned = GCHandle.Alloc(data, GCHandleType.Pinned);
+                var file = IntPtr.Zero;
+                try
+                {
+                    // A null owner makes DirectWrite keep its own copy, so the array can be released straight away.
+                    DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateInMemoryFontFileReferenceDelegate>(_bundledLoader, 4)(
+                        _bundledLoader,
+                        _factory,
+                        pinned.AddrOfPinnedObject(),
+                        (uint)data.Length,
+                        IntPtr.Zero,
+                        out file));
+                    DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.AddObjectDelegate>(builder, 7)(builder, file));
+                }
+                finally
+                {
+                    DirectWriteInterop.Release(ref file);
+                    pinned.Free();
+                }
+            }
+
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateObjectDelegate>(builder, 6)(builder, out set));
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateFontCollectionFromFontSetDelegate>(factory3, 37)(
+                factory3,
+                set,
+                out collection));
+            DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.FindFamilyNameDelegate>(collection, 5)(
+                collection,
+                BundledFamily,
+                out _,
+                out var exists));
+            if (exists == 0)
+            {
+                DirectWriteInterop.Release(ref collection);
+            }
+
+            return collection;
+        }
+        catch
+        {
+            DirectWriteInterop.Release(ref collection);
+            throw;
+        }
+        finally
+        {
+            DirectWriteInterop.Release(ref set);
+            DirectWriteInterop.Release(ref builder);
+            DirectWriteInterop.Release(ref factory3);
+            DirectWriteInterop.Release(ref factory5);
+        }
     }
 
     private IntPtr CreateFormat(
@@ -245,11 +407,23 @@ internal sealed class DirectWriteEngine : IDisposable
         trimmingSign = IntPtr.Zero;
         var weight = font.Bold ? 700 : 400;
         var style = font.Italic ? 2 : 0;
+        var family = font.FontFamily.Name;
+        var collection = IntPtr.Zero;
+
+        // GDI+ does not know the bundled face and substitutes another family, so the requested name decides.
+        if (BundledWeight(font.OriginalFontName ?? family) is { } bundled && BundledCollection() is var bundledSet
+            && bundledSet != IntPtr.Zero)
+        {
+            family = BundledFamily;
+            collection = bundledSet;
+            weight = font.Bold ? Math.Max(700, bundled) : bundled;
+        }
+
         var locale = CultureInfo.CurrentUICulture.Name;
         DirectWriteInterop.Check(DirectWriteInterop.Method<DirectWriteInterop.CreateTextFormatDelegate>(_factory, 15)(
             _factory,
-            font.FontFamily.Name,
-            IntPtr.Zero,
+            family,
+            collection,
             weight,
             style,
             5,
@@ -561,6 +735,34 @@ internal static class DirectWriteInterop
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate int SetTextFormatPropertyDelegate(IntPtr self, int value);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int CreateObjectDelegate(IntPtr self, out IntPtr created);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int AddObjectDelegate(IntPtr self, IntPtr item);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int FontFileLoaderDelegate(IntPtr self, IntPtr loader);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int CreateInMemoryFontFileReferenceDelegate(
+        IntPtr self,
+        IntPtr factory,
+        IntPtr fontData,
+        uint fontDataSize,
+        IntPtr ownerObject,
+        out IntPtr fontFile);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int CreateFontCollectionFromFontSetDelegate(IntPtr self, IntPtr fontSet, out IntPtr collection);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate int FindFamilyNameDelegate(
+        IntPtr self,
+        [MarshalAs(UnmanagedType.LPWStr)] string familyName,
+        out uint index,
+        out int exists);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate int CreateEllipsisDelegate(IntPtr self, IntPtr format, out IntPtr trimmingSign);

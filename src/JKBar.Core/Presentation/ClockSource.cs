@@ -1,5 +1,6 @@
 // The clock item. Time is passed in rather than read here so the formatting can be tested without waiting for a tick.
 using System.Globalization;
+using JKBar.Core.Settings;
 
 namespace JKBar.Core.Presentation;
 
@@ -11,6 +12,43 @@ public static class ClockSource
             [new BandValue(now.ToString("HH:mm", culture), "00:00")],
             LabelTemplate: WidestDate(),
             Kind: BandItemKind.Clock);
+
+    /// <summary>The clock as configured: nothing when every part is hidden, and two rows only when both have content.</summary>
+    public static IEnumerable<BandItem> Items(DateTimeOffset now, CultureInfo culture, ClockSettings clock)
+    {
+        var date = string.Join(' ', new[]
+        {
+            clock.ShowWeekday ? EnglishDay(now.DayOfWeek) : null,
+            clock.ShowDay ? now.Day.ToString(CultureInfo.InvariantCulture) : null
+        }.Where(part => part is not null));
+        var dateTemplate = string.Join(' ', new[]
+        {
+            clock.ShowWeekday ? "WWW" : null,
+            clock.ShowDay ? "30" : null
+        }.Where(part => part is not null));
+        var time = clock.ShowTime ? now.ToString("HH:mm", culture) : null;
+
+        if (time is not null && date.Length > 0 && clock.TwoLines)
+        {
+            yield return new BandItem(
+                string.Empty,
+                [new BandValue(time, "00:00"), new BandValue(date, dateTemplate)],
+                Layout: BandItemLayout.ClockRows,
+                Kind: BandItemKind.Clock);
+            yield break;
+        }
+
+        if (time is null && date.Length == 0)
+        {
+            yield break;
+        }
+
+        yield return new BandItem(
+            date,
+            time is null ? [] : [new BandValue(time, "00:00")],
+            LabelTemplate: date.Length == 0 ? null : dateTemplate,
+            Kind: BandItemKind.Clock);
+    }
 
     /// <summary>Weekday and day of month only; the month is left out to keep the band short.</summary>
     public static string Date(DateTimeOffset now) =>

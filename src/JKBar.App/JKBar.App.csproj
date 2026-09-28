@@ -56,6 +56,8 @@
     <EmbeddedResource Include="Assets\scene-cloud-hill.png" LogicalName="JKBar.App.Assets.scene-cloud-hill.png" />
     <EmbeddedResource Include="Assets\scene-willow-lake.png" LogicalName="JKBar.App.Assets.scene-willow-lake.png" />
     <EmbeddedResource Include="Assets\scene-tropical-coast.png" LogicalName="JKBar.App.Assets.scene-tropical-coast.png" />
+    <!-- Pretendard (SIL OFL 1.1), unmodified; DirectWrite loads it from memory so it works without installation. -->
+    <EmbeddedResource Include="Assets\Fonts\Pretendard-*.otf" LogicalName="JKBar.App.Assets.Fonts.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

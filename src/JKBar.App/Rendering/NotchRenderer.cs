@@ -186,7 +186,7 @@ internal static class NotchRenderer
         }
         catch (ArgumentException)
         {
-            return new Font(BandTypographySettings.DefaultFontFamily, size, style, GraphicsUnit.Pixel);
+            return new Font(BandTypographySettings.FallbackFontFamily, size, style, GraphicsUnit.Pixel);
         }
     }
 

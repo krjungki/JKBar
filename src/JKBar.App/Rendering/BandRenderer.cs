@@ -98,7 +98,8 @@ internal static class BandRenderer
         IReadOnlyList<BandItem> items,
         IReadOnlyList<RunningProcess> runningProcesses,
         Image? backdrop = null,
-        RegionLook[]? regions = null)
+        RegionLook[]? regions = null,
+        BandSpacing? spacing = null)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -147,7 +148,8 @@ internal static class BandRenderer
             labelFont,
             rateFont,
             palette,
-            padding);
+            padding,
+            spacing ?? BandSpacing.Standard);
         var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, palette);
 
         return new BandHitAreas(imageBounds, newsBounds, processIcons, news is not null && newsCramped);
@@ -418,7 +420,8 @@ internal static class BandRenderer
         Font labelFont,
         Font rateFont,
         InkPalette palette,
-        int padding)
+        int padding,
+        BandSpacing spacing)
     {
         if (slot.Width <= 0 || items.Count == 0)
         {
@@ -459,17 +462,28 @@ internal static class BandRenderer
                 inner);
 
             var nextKind = i > 0 ? items[i - 1].Kind : BandItemKind.Custom;
-            var separatesActivityGroups = item.Kind is BandItemKind.Disk or BandItemKind.Network
-                && nextKind is BandItemKind.Disk or BandItemKind.Network
-                && item.Kind != nextKind;
-            // The direction letters already tell the two apart, so the seam only needs to be a touch wider.
-            var itemGap = separatesActivityGroups ? (int)Math.Round(gap * 1.5) : gap;
+            var itemGap = (int)Math.Round(gap * GroupSpacing(item.Kind, nextKind, spacing) / 100d);
             leftmost = start;
             right = start - itemGap;
         }
 
         return leftmost;
     }
+
+    /// <summary>
+    /// One spacing for every gap among the performance readouts and service icons, including where the two groups
+    /// meet, so they read as one evenly spaced row. Gaps next to anything else, such as the clock, stay standard.
+    /// </summary>
+    internal static int GroupSpacing(BandItemKind right, BandItemKind left, BandSpacing spacing) =>
+        (IsMetric(right) || IsServiceIcon(right)) && (IsMetric(left) || IsServiceIcon(left))
+            ? spacing.MetricIconPercent
+            : 100;
+
+    private static bool IsMetric(BandItemKind kind) =>
+        kind is BandItemKind.Cpu or BandItemKind.Gpu or BandItemKind.Memory or BandItemKind.Disk or BandItemKind.Network;
+
+    private static bool IsServiceIcon(BandItemKind kind) =>
+        kind is BandItemKind.GlobalSecureAccess or BandItemKind.OneDrive or BandItemKind.Syncthing;
 
     /// <summary>
     /// The icons that say a watched application is running. They sit left of the readouts with a wider seam than
@@ -540,7 +554,7 @@ internal static class BandRenderer
 
         var text = count > 9 ? "9+" : count.ToString(CultureInfo.InvariantCulture);
         using var font = new Font(
-            BandTypographySettings.DefaultFontFamily,
+            BandTypographySettings.FallbackFontFamily,
             Math.Max(8f, diameter * CountShareOfIcon),
             FontStyle.Bold,
             GraphicsUnit.Pixel);
@@ -598,6 +612,7 @@ internal static class BandRenderer
         BandItemLayout.IndicatorRows => item.Values.Max(value => Measure(g, value.Template, rateFont, format))
             + inner
             + MarkerWidth(g, DiskRead, DiskWrite, rateFont, format),        BandItemLayout.StatusIcon => StatusIconWidth(height),
+        BandItemLayout.ClockRows => item.Values.Max(value => Measure(g, value.Template, rateFont, format)),
         _ => MeasureInline(g, item, valueFont, format, inner)
     };
 
@@ -638,6 +653,9 @@ internal static class BandRenderer
                 break;
             case BandItemLayout.StatusIcon:
                 DrawStatusIcon(g, item, bounds, format);
+                break;
+            case BandItemLayout.ClockRows:
+                DrawClockRows(g, item, bounds, rateFont, format, ink);
                 break;
             default:
                 DrawInline(g, item, bounds, valueFont, format, ink, inner);
@@ -834,11 +852,12 @@ internal static class BandRenderer
 
         try
         {
-            return new Font(model.FontFamily, wanted, model.Style, GraphicsUnit.Pixel);
+            // By name: a bundled face is unknown to GDI+, which would otherwise hand back its substitute's family.
+            return new Font(model.OriginalFontName ?? model.FontFamily.Name, wanted, model.Style, GraphicsUnit.Pixel);
         }
         catch (ArgumentException)
         {
-            return new Font(BandTypographySettings.DefaultFontFamily, wanted, model.Style, GraphicsUnit.Pixel);
+            return new Font(BandTypographySettings.FallbackFontFamily, wanted, model.Style, GraphicsUnit.Pixel);
         }
     }
 
@@ -897,6 +916,14 @@ internal static class BandRenderer
             format,
             ink,
             new RectangleF(row.Left + markerWidth + inner, row.Top, valueWidth, row.Height));
+    }
+
+    /// <summary>Time over date, both held to the right edge the way the Windows taskbar clock stacks them.</summary>
+    private static void DrawClockRows(Graphics g, BandItem item, RectangleF bounds, Font font, StringFormat format, Ink ink)
+    {
+        var rows = CompactRows(g, bounds, font, font, SameFontRowOverlap);
+        WriteInBox(g, item.Values[0].Text, font, format, ink, rows.Top, StringAlignment.Far);
+        WriteInBox(g, item.Values[1].Text, font, format, ink, rows.Bottom, StringAlignment.Far);
     }
 
     /// <summary>The installed application's own icon, or a lettered disc when the icon cannot be read.</summary>
@@ -1275,7 +1302,7 @@ internal static class BandRenderer
         }
         catch (ArgumentException)
         {
-            return new Font(BandTypographySettings.DefaultFontFamily, size, style, GraphicsUnit.Pixel);
+            return new Font(BandTypographySettings.FallbackFontFamily, size, style, GraphicsUnit.Pixel);
         }
     }
 

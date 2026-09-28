@@ -17,7 +17,9 @@ public enum BandItemLayout
     IndicatorRows,
     StatusIcon,
     VerticalLabelGraph,
-    VerticalLabelValueGraph
+    VerticalLabelValueGraph,
+    /// <summary>The time over the date, both right-aligned, like the Windows taskbar clock.</summary>
+    ClockRows
 }
 
 /// <summary>How a percentage readout is drawn. The numbers are stored in settings, so they must not be reordered.</summary>
@@ -70,4 +72,10 @@ public sealed record BandItem(
 
     /// <summary>Constant labels size themselves; only ones that change, like a date, need a wider yardstick.</summary>
     public string LabelYardstick => LabelTemplate ?? Label;
+}
+
+/// <summary>The gap between any two neighbouring performance readouts or service icons, as a share of the standard gap.</summary>
+public readonly record struct BandSpacing(int MetricIconPercent)
+{
+    public static BandSpacing Standard { get; } = new(100);
 }
