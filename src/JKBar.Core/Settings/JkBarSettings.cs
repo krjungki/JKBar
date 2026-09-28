@@ -19,6 +19,12 @@ public sealed record AppearanceSettings
     /// <summary>Which display the bar sits on. Empty follows the current Windows primary display.</summary>
     public string MonitorDeviceName { get; init; } = string.Empty;
 
+    /// <summary>Lets the wallpaper behind the band pick the text colour and raise the opacity where it is busy.</summary>
+    public bool AdaptiveAppearance { get; init; }
+
+    /// <summary>Paints a blurred copy of the wallpaper behind the band's tint.</summary>
+    public bool BlurredBackdrop { get; init; }
+
     public AppearanceSettings Normalized() => this with
     {
         Overlap = Enum.IsDefined(Overlap) ? Overlap : OverlapMode.ReserveTopEdge,

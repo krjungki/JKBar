@@ -322,6 +322,12 @@ internal sealed class JkBarContext : ApplicationContext
             _bar.SetTypography(normalized.Typography);
         }
 
+        if (previous is null || previous.Appearance.AdaptiveAppearance != appearance.AdaptiveAppearance
+            || previous.Appearance.BlurredBackdrop != appearance.BlurredBackdrop)
+        {
+            _bar.SetAdaptiveAppearance(appearance.AdaptiveAppearance, appearance.BlurredBackdrop);
+        }
+
         if (previous is null || !BandItemsMatch(previous.BandItems, normalized.BandItems))
         {
             _bar.SetBandItems(normalized.BandItems);

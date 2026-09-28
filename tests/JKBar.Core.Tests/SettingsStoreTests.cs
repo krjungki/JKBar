@@ -301,7 +301,7 @@ public class SettingsStoreTests : IDisposable
         var store = Store();
         var expected = new AppearanceSettings
         {
-            Overlap = OverlapMode.Floating,
+            Overlap = OverlapMode.PinnedToDesktop,
             BandColourArgb = unchecked((int)0xFF203040),
             BandOpacityPercent = 60,
             ImagePath = @"C:\Images\logo.png",

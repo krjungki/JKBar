@@ -16,14 +16,17 @@ internal static class BandRenderer
     private const float PaddingShareOfHeight = 0.22f;
     private const float LabelRowOverlap = 0.5f;
     private const float SameFontRowOverlap = 0.12f;
-    private static readonly Marker DiskRead = new("R", Color.FromArgb(32, 145, 88));
+    private static readonly Marker DiskRead = new("R", Color.FromArgb(32, 145, 88)) { OnDark = Color.FromArgb(74, 222, 128) };
     private static readonly Marker DiskWrite = new("W", Color.FromArgb(218, 48, 57));
     private static readonly Marker NetworkUp = new("U", Color.FromArgb(218, 48, 57));
-    private static readonly Marker NetworkDown = new("D", Color.FromArgb(38, 103, 196));
+    private static readonly Marker NetworkDown = new("D", Color.FromArgb(38, 103, 196)) { OnDark = Color.FromArgb(102, 178, 255) };
 
     // Korean exchanges colour a gain red and a loss blue, which is the opposite of the American convention.
     private static readonly Color StockRising = Color.FromArgb(218, 48, 57);
     private static readonly Color StockFalling = Color.FromArgb(38, 103, 196);
+    // Light text means a dark band, where the deep red and blue above sink into the background.
+    private static readonly Color StockRisingOnDark = Color.FromArgb(255, 107, 107);
+    private static readonly Color StockFallingOnDark = Color.FromArgb(102, 178, 255);
     private static readonly Color StatusIconInk = Color.FromArgb(250, 250, 252);
     private static readonly Color BadgeAttention = Color.FromArgb(218, 48, 57);
     private static readonly Color BadgeGood = Color.FromArgb(32, 145, 88);
@@ -78,6 +81,7 @@ internal static class BandRenderer
     /// <param name="quote">The symbol showing right now; the caller cycles through the registered ones.</param>
     /// <param name="items">In display order, left to right.</param>
     /// <param name="runningProcesses">Watched executables that are running; their icons sit left of the readouts.</param>
+    /// <param name="backdrop">An opaque frosted wallpaper strip to tint instead of the plain translucent fill.</param>
     internal static BandHitAreas Paint(
         Graphics g,
         Size surface,
@@ -91,7 +95,8 @@ internal static class BandRenderer
         StockQuote? quote,
         NewsItem? news,
         IReadOnlyList<BandItem> items,
-        IReadOnlyList<RunningProcess> runningProcesses)
+        IReadOnlyList<RunningProcess> runningProcesses,
+        Image? backdrop = null)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -99,7 +104,15 @@ internal static class BandRenderer
 
         // ClearType leaves black fringes on a layered surface because it assumes an opaque background.
         g.TextRenderingHint = TextRenderingHint.AntiAlias;
-        g.Clear(style.ForLayeredSurface());
+        if (backdrop is null)
+        {
+            g.Clear(style.ForLayeredSurface());
+        }
+        else
+        {
+            PaintBackdrop(g, surface, backdrop, style);
+        }
+
         StampNotch(g, notch, notchCornerRadius);
 
         var padding = (int)Math.Round(surface.Height * PaddingShareOfHeight);
@@ -135,6 +148,32 @@ internal static class BandRenderer
         var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, ink);
 
         return new BandHitAreas(imageBounds, newsBounds, processIcons, news is not null && newsCramped);
+    }
+
+    /// <summary>
+    /// The backdrop is solid, so the tint blends over it in straight alpha and the whole surface stays opaque, which
+    /// sidesteps the premultiplication the translucent fill needs.
+    /// </summary>
+    private static void PaintBackdrop(Graphics g, Size surface, Image backdrop, BandStyle style)
+    {
+        using (var edges = new System.Drawing.Imaging.ImageAttributes())
+        {
+            edges.SetWrapMode(WrapMode.TileFlipXY);
+            g.CompositingMode = CompositingMode.SourceCopy;
+            g.DrawImage(
+                backdrop,
+                new Rectangle(Point.Empty, surface),
+                0,
+                0,
+                backdrop.Width,
+                backdrop.Height,
+                GraphicsUnit.Pixel,
+                edges);
+            g.CompositingMode = CompositingMode.SourceOver;
+        }
+
+        using var tint = new SolidBrush(Color.FromArgb((int)Math.Round(style.Opacity * 255 / 100d), style.Colour));
+        g.FillRectangle(tint, 0, 0, surface.Width, surface.Height);
     }
 
     /// <summary>
@@ -301,12 +340,7 @@ internal static class BandRenderer
             return;
         }
 
-        using var brush = new SolidBrush(quote.Direction switch
-        {
-            StockDirection.Rising => StockRising,
-            StockDirection.Falling => StockFalling,
-            _ => ink.Colour
-        });
+        using var brush = new SolidBrush(StockColour(quote.Direction, ink.Colour));
         Write(
             g,
             move,
@@ -315,6 +349,27 @@ internal static class BandRenderer
             ink with { Foreground = brush },
             new RectangleF(left + nameWidth + priceWidth, box.Top, moveWidth, box.Height));
     }
+
+    internal static Color StockColour(StockDirection direction, Color text)
+    {
+        var onDark = IsLight(text);
+        return direction switch
+        {
+            StockDirection.Rising => onDark ? StockRisingOnDark : StockRising,
+            StockDirection.Falling => onDark ? StockFallingOnDark : StockFalling,
+            _ => text
+        };
+    }
+
+    internal static Color NetworkDownColour(Color text) => MarkerColour(NetworkDown, text);
+
+    internal static Color DiskReadColour(Color text) => MarkerColour(DiskRead, text);
+
+    private static Color MarkerColour(Marker marker, Color text) =>
+        marker.OnDark is { } onDark && IsLight(text) ? onDark : marker.Colour;
+
+    /// <summary>Light text means the band behind it is dark.</summary>
+    private static bool IsLight(Color text) => ColourContrast.RelativeLuminance(text) > 0.4;
 
     /// <returns>Where the text itself landed, so a click beside a short headline does not open it.</returns>
     private static Rectangle DrawNews(Graphics g, Rectangle box, NewsItem? news, Font font, Ink ink)
@@ -822,7 +877,7 @@ internal static class BandRenderer
         Ink ink,
         int inner)
     {
-        using var brush = new SolidBrush(marker.Colour);
+        using var brush = new SolidBrush(MarkerColour(marker, ink.Colour));
         WriteInBox(
             g,
             marker.Text,
@@ -1112,7 +1167,11 @@ internal static class BandRenderer
     private readonly record struct Ink(Brush Foreground, Brush? Shadow, Color Colour, Color Graph);
 
     /// <summary>The letter in front of a rate row, and the colour that tells the two rows apart at a glance.</summary>
-    private readonly record struct Marker(string Text, Color Colour);
+    private readonly record struct Marker(string Text, Color Colour)
+    {
+        /// <summary>Used instead of <see cref="Colour"/> when the band's text is light.</summary>
+        public Color? OnDark { get; init; }
+    }
 
     private static (RectangleF Top, RectangleF Bottom) CompactRows(
         Graphics g,

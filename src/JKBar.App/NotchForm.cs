@@ -191,6 +191,8 @@ internal sealed class NotchForm : Form
         _reservation.SetStyle(style);
     }
 
+    internal void SetAdaptiveAppearance(bool adaptive, bool blur) => _reservation.SetAdaptive(adaptive, blur);
+
     internal bool HasImage => _image is not null;
 
     internal NewsSettings NewsSettings => _newsSettings;
@@ -655,7 +657,7 @@ internal sealed class NotchForm : Form
     }
 
     /// <summary>
-    /// Reserving the edge and floating both keep the bar on top; only the desktop mode drops it, and it has to be
+    /// Reserving the edge keeps the bar on top; the desktop mode drops it, and it has to be
     /// pushed down again whenever the shell rearranges the z-order.
     /// </summary>
     private void ApplyOverlap()

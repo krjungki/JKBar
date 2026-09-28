@@ -58,6 +58,8 @@ internal sealed class SettingsForm : Form
     private readonly Label _fontSummary = new() { AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Panel _textSwatch = new() { Width = 44, Height = 24, BorderStyle = BorderStyle.FixedSingle };
     private readonly CheckBox _textShadow = new() { Text = "글자 그림자 표시", AutoSize = true };
+    private readonly CheckBox _adaptiveAppearance = new() { Text = "바탕화면에 맞춰 글자색과 투명도 자동 조정", AutoSize = true };
+    private readonly CheckBox _blurredBackdrop = new() { Text = "흐린 바탕화면 배경", AutoSize = true };
     private readonly CheckBox _startWithWindows = new() { Text = "Windows에 로그인하면 JKBar를 시작", AutoSize = true };
     private readonly CheckBox _showNowPlaying = new() { Text = "재생 중인 곡을 노치에 계속 표시", AutoSize = true };
     private readonly CheckBox _hideWhenFullscreen = new() { Text = "전체화면 앱이 실행 중이면 숨기고 측정도 멈춤", AutoSize = true };
@@ -169,12 +171,11 @@ internal sealed class SettingsForm : Form
         Text = $"JKBar {BuildInfo.Version} 설정";
         FormBorderStyle = FormBorderStyle.Sizable;
         MinimumSize = new Size(680, 800);
-        ClientSize = new Size(760, 900);
+        ClientSize = new Size(760, 1010);
         StartPosition = FormStartPosition.CenterScreen;
         ShowInTaskbar = false;
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        AddOption(_overlap, "항상 위", OverlapMode.Floating);
         AddOption(_overlap, "자리 예약 (창이 아래에서 시작)", OverlapMode.ReserveTopEdge);
         AddOption(_overlap, "바탕화면에 고정 (창 뒤로)", OverlapMode.PinnedToDesktop);
         SelectOption(_overlap, normalized.Appearance.Overlap);
@@ -237,6 +238,8 @@ internal sealed class SettingsForm : Form
         UpdateImageScaleSummary();
         _imagePath.Text = normalized.Appearance.ImagePath ?? string.Empty;
         _textShadow.Checked = normalized.Typography.TextShadow;
+        _adaptiveAppearance.Checked = normalized.Appearance.AdaptiveAppearance;
+        _blurredBackdrop.Checked = normalized.Appearance.BlurredBackdrop;
         _startWithWindows.Checked = normalized.Startup.StartWithWindows;
         _showNowPlaying.Checked = normalized.Notch.ShowNowPlaying;
         _hideWhenFullscreen.Checked = normalized.Behaviour.HideWhenFullscreen;
@@ -318,6 +321,8 @@ internal sealed class SettingsForm : Form
         _hideWhenFullscreen.CheckedChanged += (_, _) => RaisePreview();
         _metricsRefresh.ValueChanged += (_, _) => RaisePreview();
         _textShadow.CheckedChanged += (_, _) => RaisePreview();
+        _adaptiveAppearance.CheckedChanged += (_, _) => RaisePreview();
+        _blurredBackdrop.CheckedChanged += (_, _) => RaisePreview();
         _newsEnabled.CheckedChanged += (_, _) => RaisePreview();
         _refreshMinutes.ValueChanged += (_, _) => RaisePreview();
         _rotationSeconds.ValueChanged += (_, _) => RaisePreview();
@@ -379,7 +384,9 @@ internal sealed class SettingsForm : Form
             BandOpacityPercent = _bandOpacity.Value * 5,
             ImagePath = string.IsNullOrWhiteSpace(_imagePath.Text) ? null : _imagePath.Text,
             ImageScalePercent = _imageScale.Value * 5,
-            MonitorDeviceName = SelectedMonitor()
+            MonitorDeviceName = SelectedMonitor(),
+            AdaptiveAppearance = _adaptiveAppearance.Checked,
+            BlurredBackdrop = _blurredBackdrop.Checked
         },
         Notch = new NotchSettings
         {
@@ -556,9 +563,22 @@ internal sealed class SettingsForm : Form
         graphColourRow.Controls.Add(_graphSwatch);
         graphColourRow.Controls.Add(_graphColour);
 
+        var adaptiveRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        adaptiveRow.Controls.Add(_adaptiveAppearance);
+        adaptiveRow.Controls.Add(_blurredBackdrop);
+        adaptiveRow.Controls.Add(new Label
+        {
+            Text = "자리 예약 방식에서만 동작합니다. 자동 조정은 위 Bar 투명도를 가장 옅은 값으로 쓰고 배경이 복잡할수록 진하게 칠합니다. Windows 투명 효과가 꺼져 있으면 흐린 배경을 쓰지 않고, 자동 조정은 불투명하게 칠합니다.",
+            AutoSize = true,
+            MaximumSize = new Size(540, 0),
+            ForeColor = SystemColors.GrayText,
+            Margin = new Padding(3, 3, 3, 6)
+        });
+
         var appearance = FormGrid();
         AddRow(appearance, "Bar 색깔", colorRow);
         AddRow(appearance, "Bar 투명도", opacityRow);
+        AddRow(appearance, "배경 자동 조정", adaptiveRow);
         AddRow(appearance, "사용자 로고", imageRow);
         AddRow(appearance, "사용자 로고 크기", SliderRow(_imageScale, _imageScaleValue));
         AddRow(appearance, "Bar 폰트", fontRow);
@@ -1377,6 +1397,14 @@ internal sealed class SettingsForm : Form
     {
         base.OnLoad(e);
         GrowToFitRows();
+
+        // The taller default must still fit a small or highly scaled screen.
+        var area = Screen.FromControl(this).WorkingArea;
+        if (Height > area.Height)
+        {
+            Height = Math.Max(MinimumSize.Height, area.Height);
+            Top = area.Top;
+        }
     }
 
     // The starting size is in pixels but the fonts follow the display's scaling, so on a high-scale display a long

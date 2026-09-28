@@ -1,7 +1,7 @@
 // Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). Keep behaviour changes in sync with the original.
 namespace JKBar.Core.Sync;
 
-/// <summary>Aggregate completion payload of GET /rest/db/completion with no folder or device parameter.</summary>
+/// <summary>Completion counters, as carried by a FolderCompletion event and summed per peer.</summary>
 public readonly record struct SyncthingCompletion(double Completion, long NeedBytes, long NeedItems, long NeedDeletes);
 
 /// <summary>Per-folder status, from GET /rest/db/status or the summary carried by a FolderSummary event.</summary>
@@ -38,8 +38,8 @@ public static class SyncthingStatusMapper
     };
 
     /// <summary>
-    /// The device-less completion call only covers what this machine still needs, so a locally edited file looks
-    /// finished there. Outgoing work shows up as the connected peers still needing data from us.
+    /// Local completion only covers what this machine still needs, so a locally edited file looks finished there.
+    /// Outgoing work shows up as the connected peers still needing data from us.
     /// </summary>
     public static SyncState Aggregate(SyncthingCompletion local, IReadOnlyList<SyncthingCompletion> remotes)
     {

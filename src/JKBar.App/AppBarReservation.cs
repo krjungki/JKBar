@@ -36,6 +36,7 @@ internal sealed class AppBarReservation : Form
     private int _height;
     private bool _registered;
     private bool _reportedNewsCramped;
+    private readonly AdaptiveBandAppearance _appearance = new();
 
     /// <summary>Raised after the band takes a new position, so the bar can put itself back above it.</summary>
     internal Action? Claimed;
@@ -58,6 +59,13 @@ internal sealed class AppBarReservation : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Text = "JKBar reservation";
+        _appearance.Changed = () =>
+        {
+            if (_registered)
+            {
+                PaintBand();
+            }
+        };
     }
 
     protected override CreateParams CreateParams
@@ -92,12 +100,15 @@ internal sealed class AppBarReservation : Form
     internal void SetStyle(BandStyle style)
     {
         _style = style;
+        _appearance.SetStyle(style);
 
         if (_registered)
         {
             PaintBand();
         }
     }
+
+    internal void SetAdaptive(bool adaptive, bool blur) => _appearance.Configure(adaptive, blur);
 
     internal void SetTypography(BandTypographySettings typography)
     {
@@ -169,6 +180,8 @@ internal sealed class AppBarReservation : Form
             _registered = false;
         }
 
+        _appearance.SetBand(Rectangle.Empty);
+
         if (Visible)
         {
             Hide();
@@ -190,6 +203,7 @@ internal sealed class AppBarReservation : Form
     private void Claim()
     {
         _band = AppBarInterop.Claim(Handle, _screen, _height);
+        _appearance.SetBand(new Rectangle(_band.Left, _band.Top, _band.Width, _band.Height));
         PaintBand();
 
         // The band shares the topmost group with the bar so a window dragged over the top edge cannot split them.
@@ -238,6 +252,11 @@ internal sealed class AppBarReservation : Form
         }
 
         bool cramped;
+        var look = _appearance.Look;
+        var style = look is null ? _style : _style with { OpacityPercent = look.OpacityPercent };
+        var typography = look is null
+            ? _typography
+            : _typography with { TextColourArgb = look.Text.ToArgb(), TextShadow = _typography.TextShadow || look.Shadow };
         using (var graphics = Graphics.FromImage(_surface))
         {
             var areas = BandRenderer.Paint(
@@ -245,15 +264,16 @@ internal sealed class AppBarReservation : Form
                 _surfaceSize,
                 _notch,
                 _notchCornerRadius,
-                _style,
-                _typography,
+                style,
+                typography,
                 _image,
                 _imageScalePercent,
                 _activeApp,
                 _quote,
                 _news,
                 _items,
-                _runningProcesses);
+                _runningProcesses,
+                _appearance.Backdrop);
 
             _imageBounds = areas.Image;
             _newsBounds = areas.News;
@@ -354,6 +374,7 @@ internal sealed class AppBarReservation : Form
         if (disposing)
         {
             Release();
+            _appearance.Dispose();
             _surface?.Dispose();
         }
 

@@ -1,4 +1,4 @@
-// Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). Keep behaviour changes in sync with the original.
+// Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). Since 0.8.8 JKBar no longer polls db/completion; JKMon still does.
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -6,11 +6,26 @@ using System.Text.Json.Serialization;
 namespace JKBar.Core.Sync;
 
 /// <summary>
-/// Polls the local Syncthing REST API. Uses the aggregate completion endpoint because the documentation marks
-/// per-folder status as an expensive call that should be used sparingly.
+/// Follows the local Syncthing REST event stream. db/completion is never polled: on a large index every call walks
+/// the whole need set in SQLite and a 5 s cadence kept the daemon busy on several cores while fully idle.
 /// </summary>
 public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
 {
+    internal const string EventMask =
+        "StateChanged,FolderSummary,FolderCompletion,DeviceConnected,DeviceDisconnected,ConfigSaved," +
+        "ItemStarted,ItemFinished,LocalIndexUpdated,RemoteIndexUpdated,DownloadProgress,RemoteDownloadProgress," +
+        "FolderScanProgress";
+
+    internal const int EventPageLimit = 200;
+
+    internal static readonly TimeSpan ReconcileInterval = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan FolderConfigInterval = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan FolderReseedInterval = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(5);
+
+    private static readonly SyncthingCompletion NothingNeeded = new(100, 0, 0, 0);
+
     private readonly HttpClient _http;
     private readonly Func<SyncthingEndpoint?> _endpointFactory;
     private readonly TimeProvider _time;
@@ -18,9 +33,18 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     private readonly bool _ownsClient;
 
     private readonly Dictionary<string, SyncthingFolderStatus> _folders = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Device, string Folder), SyncthingCompletion> _remotes = [];
 
+    private HashSet<string>? _connected;
+    private DateTimeOffset _reconciledAt;
+    private List<FolderConfigPayload>? _folderConfigs;
+    private DateTimeOffset _folderConfigsReadAt;
+    private bool _reloadFolderConfigs;
     private long _lastEventId = -1;
     private bool _reseedFolders = true;
+    private DateTimeOffset _reseededAt = DateTimeOffset.MinValue;
+    private int _failures;
+    private DateTimeOffset _retryAt = DateTimeOffset.MinValue;
 
     public SyncthingSyncProvider(
         Func<SyncthingEndpoint?>? endpointFactory = null,
@@ -47,33 +71,33 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
 
         if (!await IsHealthyAsync(endpoint, cancellationToken).ConfigureAwait(false))
         {
+            // A restarted daemon numbers its events from scratch, so nothing cached survives an outage.
+            ResetState();
             return SyncProviderSnapshot.Absent(ProviderId, Initial);
+        }
+
+        var now = _time.GetUtcNow();
+        if (now < _retryAt)
+        {
+            return Unreachable();
         }
 
         try
         {
-            var payload = await GetAsync<CompletionPayload>(endpoint, "/rest/db/completion", cancellationToken)
-                .ConfigureAwait(false);
+            await ReconcileAsync(endpoint, now, cancellationToken).ConfigureAwait(false);
 
-            if (payload is null)
-            {
-                return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "empty API response");
-            }
-
-            var localCompletion = new SyncthingCompletion(
-                payload.Completion, payload.NeedBytes, payload.NeedItems, payload.NeedDeletes);
-
-            var remotes = await GetRemoteCompletionsAsync(endpoint, cancellationToken).ConfigureAwait(false);
-            var counterState = SyncthingStatusMapper.Aggregate(localCompletion, remotes);
-
-            var now = _time.GetUtcNow();
             if (await PollEventsAsync(endpoint, cancellationToken).ConfigureAwait(false))
             {
                 _activity.Mark(now);
             }
 
-            var folders = await ReadFolderStatusesAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            var folders = await ReadFolderStatusesAsync(endpoint, now, cancellationToken).ConfigureAwait(false);
+            _failures = 0;
+            _retryAt = DateTimeOffset.MinValue;
+
             var folderState = SyncthingStatusMapper.AggregateFolders(folders);
+            var remotes = ConnectedRemotes();
+            var counterState = SyncthingStatusMapper.Aggregate(NothingNeeded, remotes);
 
             // A small edit finishes between polls, so recent events are what reveal it.
             var recentlyActive = _activity.IsActive(now);
@@ -83,7 +107,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
             var detail = folderState != SyncState.UpToDate
                 ? SyncthingStatusMapper.DescribeFolders(folders)
                 : counterState != SyncState.UpToDate
-                    ? SyncthingStatusMapper.Describe(localCompletion, remotes)
+                    ? SyncthingStatusMapper.Describe(NothingNeeded, remotes)
                     : recentlyActive
                         ? "transferring"
                         : "all folders up to date";
@@ -92,50 +116,87 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            // The API key must never reach a message surfaced to the user.
-            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "API unreachable");
+            // A struggling daemon is left alone for a while instead of being asked again on the next tick.
+            _failures++;
+            var delay = _failures <= 1
+                ? TimeSpan.Zero
+                : TimeSpan.FromTicks(Math.Min(
+                    InitialBackoff.Ticks * (1L << Math.Min(_failures - 2, 8)), MaxBackoff.Ticks));
+            _retryAt = now + delay;
+            ResetState();
+            return Unreachable();
         }
+    }
+
+    // The API key must never reach a message surfaced to the user.
+    private SyncProviderSnapshot Unreachable() =>
+        new(ProviderId, Initial, SyncState.Unknown, "API unreachable");
+
+    private void ResetState()
+    {
+        _folders.Clear();
+        _remotes.Clear();
+        _connected = null;
+        _folderConfigs = null;
+        _lastEventId = -1;
+        _reseedFolders = true;
+        _reseededAt = DateTimeOffset.MinValue;
     }
 
     /// <summary>
     /// Only connected peers count. A device that is offline may legitimately be behind, and treating that as an
     /// in-progress sync would leave the indicator red indefinitely.
     /// </summary>
-    private async Task<List<SyncthingCompletion>> GetRemoteCompletionsAsync(
-        SyncthingEndpoint endpoint, CancellationToken cancellationToken)
+    private List<SyncthingCompletion> ConnectedRemotes()
     {
-        var results = new List<SyncthingCompletion>();
-
-        try
+        if (_connected is null)
         {
-            var connections = await GetAsync<ConnectionsPayload>(endpoint, "/rest/system/connections", cancellationToken)
+            return [];
+        }
+
+        return _remotes
+            .Where(pair => _connected.Contains(pair.Key.Device))
+            .GroupBy(pair => pair.Key.Device, StringComparer.Ordinal)
+            .Select(group => new SyncthingCompletion(
+                group.Min(pair => pair.Value.Completion),
+                group.Sum(pair => pair.Value.NeedBytes),
+                group.Sum(pair => pair.Value.NeedItems),
+                group.Sum(pair => pair.Value.NeedDeletes)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Connection changes arrive as events; the list is re-read only at start and every few minutes as a safety net,
+    /// together with a check that the daemon has not restarted and reset its event ids between two polls.
+    /// </summary>
+    private async Task ReconcileAsync(SyncthingEndpoint endpoint, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (_connected is not null && now - _reconciledAt < ReconcileInterval)
+        {
+            return;
+        }
+
+        if (_lastEventId > 0)
+        {
+            var latest = await GetAsync<List<EventPayload>>(endpoint, EventsPath(0, 1), cancellationToken)
                 .ConfigureAwait(false);
-
-            var connected = connections?.Connections?
-                .Where(pair => pair.Value.Connected)
-                .Select(pair => pair.Key)
-                .ToList() ?? [];
-
-            foreach (var device in connected)
+            if (latest is not { Count: > 0 } || latest.Max(item => item.Id) < _lastEventId)
             {
-                var path = $"/rest/db/completion?device={Uri.EscapeDataString(device)}";
-                var remote = await GetAsync<CompletionPayload>(endpoint, path, cancellationToken).ConfigureAwait(false);
-                if (remote is null)
-                {
-                    continue;
-                }
-
-                results.Add(new SyncthingCompletion(
-                    remote.Completion, remote.NeedBytes, remote.NeedItems, remote.NeedDeletes));
+                ResetState();
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            // Peers we cannot query simply do not contribute to the decision.
-        }
 
-        return results;
+        var connections = await GetAsync<ConnectionsPayload>(endpoint, "/rest/system/connections", cancellationToken)
+            .ConfigureAwait(false);
+
+        _connected = new HashSet<string>(
+            connections?.Connections?.Where(pair => pair.Value.Connected).Select(pair => pair.Key) ?? [],
+            StringComparer.Ordinal);
+        _reconciledAt = now;
     }
+
+    private static string EventsPath(long since, int limit) =>
+        $"/rest/events?events={EventMask}&since={since}&limit={limit}&timeout=0";
 
     /// <summary>
     /// Syncthing buffers events, so asking for everything since the last seen id catches bursts that started and
@@ -143,59 +204,113 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     /// </summary>
     private async Task<bool> PollEventsAsync(SyncthingEndpoint endpoint, CancellationToken cancellationToken)
     {
-        try
+        var priming = _lastEventId < 0;
+        var since = priming ? 0 : _lastEventId;
+        var limit = priming ? 1 : EventPageLimit;
+
+        var events = await GetAsync<List<EventPayload>>(endpoint, EventsPath(since, limit), cancellationToken)
+            .ConfigureAwait(false);
+        if (events is null || events.Count == 0)
         {
-            var priming = _lastEventId < 0;
-            var since = priming ? 0 : _lastEventId;
-            var limit = priming ? 1 : 200;
-            var path = $"/rest/events?since={since}&limit={limit}&timeout=0";
-
-            var events = await GetAsync<List<EventPayload>>(endpoint, path, cancellationToken).ConfigureAwait(false);
-            if (events is null || events.Count == 0)
-            {
-                return false;
-            }
-
-            _lastEventId = events.Max(item => item.Id);
+            // The masked subscription is created by this first request, so everything after it is still to come.
             if (priming)
             {
-                return false;
+                _lastEventId = 0;
             }
 
-            // A full page means older events may already have scrolled past, so the cached states are unreliable.
-            if (events.Count >= limit)
-            {
-                _reseedFolders = true;
-            }
-
-            var active = false;
-            foreach (var item in events)
-            {
-                ApplyFolderEvent(item);
-                active |= SyncthingEventFilter.IndicatesActivity(item.Type, StateTarget(item));
-            }
-
-            return active;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            // A failed event query only costs us this round of activity detection.
             return false;
         }
+
+        _lastEventId = events.Max(item => item.Id);
+        if (priming)
+        {
+            return false;
+        }
+
+        // A full page means older events may already have scrolled past, so the cached states are unreliable.
+        // A stale peer entry would hold the indicator in sync forever, so peers restart from the next report.
+        if (events.Count >= limit)
+        {
+            _reseedFolders = true;
+            _remotes.Clear();
+        }
+
+        var active = false;
+        foreach (var item in events)
+        {
+            ApplyEvent(item);
+            active |= SyncthingEventFilter.IndicatesActivity(item.Type, StateTarget(item));
+        }
+
+        return active;
     }
 
-    /// <summary>Folder state is kept current from the event stream, which is cheap and already being polled.</summary>
-    private void ApplyFolderEvent(EventPayload item)
+    /// <summary>Folder, peer and connection state are kept current from the event stream, which is cheap.</summary>
+    private void ApplyEvent(EventPayload item)
     {
-        if (item.Data.ValueKind != JsonValueKind.Object ||
-            !item.Data.TryGetProperty("folder", out var folder) ||
-            folder.ValueKind != JsonValueKind.String)
+        if (item.Data.ValueKind != JsonValueKind.Object)
         {
             return;
         }
 
-        var folderId = folder.GetString();
-        if (string.IsNullOrEmpty(folderId) || !_folders.TryGetValue(folderId, out var known))
+        switch (item.Type)
+        {
+            case "ConfigSaved":
+                _reloadFolderConfigs = true;
+                return;
+
+            case "DeviceConnected" when StringProperty(item.Data, "id") is { Length: > 0 } device:
+                _connected?.Add(device);
+                return;
+
+            case "DeviceDisconnected" when StringProperty(item.Data, "id") is { Length: > 0 } device:
+                _connected?.Remove(device);
+                foreach (var key in _remotes.Keys.Where(key => key.Device == device).ToList())
+                {
+                    _remotes.Remove(key);
+                }
+
+                return;
+
+            case "FolderCompletion":
+                ApplyCompletion(item.Data);
+                return;
+        }
+
+        if (StringProperty(item.Data, "folder") is not { Length: > 0 } folderId)
+        {
+            return;
+        }
+
+        ApplyFolderEvent(item, folderId);
+    }
+
+    private void ApplyCompletion(JsonElement data)
+    {
+        var payload = data.Deserialize<FolderCompletionPayload>();
+        if (payload is not { Device: { Length: > 0 } device, Folder: { Length: > 0 } folder })
+        {
+            return;
+        }
+
+        // A peer that paused or stopped sharing the folder reports no progress and is not waiting on us.
+        if (payload.RemoteState is { Length: > 0 } remoteState &&
+            !string.Equals(remoteState, "valid", StringComparison.OrdinalIgnoreCase))
+        {
+            _remotes.Remove((device, folder));
+            return;
+        }
+
+        _remotes[(device, folder)] = new SyncthingCompletion(
+            payload.Completion, payload.NeedBytes, payload.NeedItems, payload.NeedDeletes);
+    }
+
+    private static string? StringProperty(JsonElement data, string name) =>
+        data.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private void ApplyFolderEvent(EventPayload item, string folderId)
+    {
+        if (!_folders.TryGetValue(folderId, out var known))
         {
             return;
         }
@@ -219,61 +334,70 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
 
     /// <summary>
     /// The documented-expensive db/status call is used only to seed a folder we have not seen yet, or to recover
-    /// after an event page came back full and may have dropped a transition. Steady state costs nothing extra.
+    /// after an event page came back full, and that recovery is rate limited. Steady state costs nothing extra.
     /// </summary>
     private async Task<List<SyncthingFolderStatus>> ReadFolderStatusesAsync(
-        SyncthingEndpoint endpoint, CancellationToken cancellationToken)
+        SyncthingEndpoint endpoint, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var statuses = new List<SyncthingFolderStatus>();
-
-        try
+        if (_folderConfigs is null || _reloadFolderConfigs || now - _folderConfigsReadAt >= FolderConfigInterval)
         {
-            var configs = await GetAsync<List<FolderConfigPayload>>(endpoint, "/rest/config/folders", cancellationToken)
-                .ConfigureAwait(false) ?? [];
+            _folderConfigs = await GetAsync<List<FolderConfigPayload>>(endpoint, "/rest/config/folders", cancellationToken)
+                .ConfigureAwait(false) ?? throw new JsonException("empty folder configuration");
+            _folderConfigsReadAt = now;
+            _reloadFolderConfigs = false;
+        }
 
-            var unresolved = false;
-            foreach (var config in configs)
+        var reseed = _reseedFolders && now - _reseededAt >= FolderReseedInterval;
+        var statuses = new List<SyncthingFolderStatus>();
+        var configured = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var config in _folderConfigs)
+        {
+            if (config.Id is not { Length: > 0 } id)
             {
-                if (config.Id is not { Length: > 0 } id)
-                {
-                    continue;
-                }
-
-                var name = string.IsNullOrWhiteSpace(config.Label) ? id : config.Label;
-
-                // A paused folder reports no progress at all, so its config flag is the only signal available.
-                if (config.Paused)
-                {
-                    statuses.Add(new SyncthingFolderStatus(name, SyncthingFolderStatus.PausedState, 0, 0, 0));
-                    continue;
-                }
-
-                if (!_reseedFolders && _folders.TryGetValue(id, out var known))
-                {
-                    statuses.Add(known with { Name = name });
-                    _folders[id] = known with { Name = name };
-                    continue;
-                }
-
-                var path = $"/rest/db/status?folder={Uri.EscapeDataString(id)}";
-                var payload = await GetAsync<FolderStatusPayload>(endpoint, path, cancellationToken).ConfigureAwait(false);
-                if (payload is null)
-                {
-                    unresolved = true;
-                    continue;
-                }
-
-                var seeded = payload.ToStatus(name);
-                _folders[id] = seeded;
-                statuses.Add(seeded);
+                continue;
             }
 
-            _reseedFolders = unresolved;
+            configured.Add(id);
+            var name = string.IsNullOrWhiteSpace(config.Label) ? id : config.Label;
+
+            // A paused folder reports no progress at all, so its config flag is the only signal available.
+            if (config.Paused)
+            {
+                statuses.Add(new SyncthingFolderStatus(name, SyncthingFolderStatus.PausedState, 0, 0, 0));
+                continue;
+            }
+
+            if (!reseed && _folders.TryGetValue(id, out var known))
+            {
+                statuses.Add(known with { Name = name });
+                _folders[id] = known with { Name = name };
+                continue;
+            }
+
+            var path = $"/rest/db/status?folder={Uri.EscapeDataString(id)}";
+            var payload = await GetAsync<FolderStatusPayload>(endpoint, path, cancellationToken).ConfigureAwait(false)
+                ?? throw new JsonException("empty folder status");
+
+            var seeded = payload.ToStatus(name);
+            _folders[id] = seeded;
+            statuses.Add(seeded);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+
+        foreach (var removed in _folders.Keys.Where(id => !configured.Contains(id)).ToList())
         {
-            // Folder detail is an enrichment; the completion counters still drive the circle without it.
-            _reseedFolders = true;
+            _folders.Remove(removed);
+        }
+
+        foreach (var removed in _remotes.Keys.Where(key => !configured.Contains(key.Folder)).ToList())
+        {
+            _remotes.Remove(removed);
+        }
+
+        if (reseed)
+        {
+            _reseedFolders = false;
+            _reseededAt = now;
         }
 
         return statuses;
@@ -299,7 +423,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return default;
+            throw new HttpRequestException($"Syncthing API returned {(int)response.StatusCode}", null, response.StatusCode);
         }
 
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken).ConfigureAwait(false);
@@ -328,8 +452,17 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         }
     }
 
-    private sealed record CompletionPayload
+    private sealed record FolderCompletionPayload
     {
+        [JsonPropertyName("device")]
+        public string? Device { get; init; }
+
+        [JsonPropertyName("folder")]
+        public string? Folder { get; init; }
+
+        [JsonPropertyName("remoteState")]
+        public string? RemoteState { get; init; }
+
         [JsonPropertyName("completion")]
         public double Completion { get; init; }
 
