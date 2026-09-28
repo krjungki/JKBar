@@ -24,6 +24,6 @@ public class BuildInfoTests
     [Fact]
     public void MatchesTheVersionManifest()
     {
-        Assert.Equal("0.9.2", BuildInfo.Version);
+        Assert.Equal("0.9.3", BuildInfo.Version);
     }
 }

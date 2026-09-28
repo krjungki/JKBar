@@ -41,7 +41,10 @@ internal static class BandRenderer
     /// The widest reading a quote box has to hold. Korean names are wider per character than digits, so the
     /// yardstick is written in them.
     /// </summary>
-    private const string QuoteYardstick = "종목이름다섯 0,000,000 ▼00.00%";
+    private const string QuoteYardstick = "종목이름다섯 0,000,000" + MoveYardstick;
+
+    /// <summary>The move column is held for three-digit percentages so it never has to grow.</summary>
+    private const string MoveYardstick = " ▼999.99%";
 
     /// <summary>
     /// The stretch of the active application's name that keeps its room before the headline gets any. Written in
@@ -50,7 +53,13 @@ internal static class BandRenderer
     private const string NameYardstick = "앱이름여섯자";
 
     /// <summary>The shortest headline worth showing. Narrower than this the news is turned off, not left as a stub.</summary>
-    private const string NewsYardstick = "NEWS 00:00 [뉴스제목여덟자]";
+    private const string NewsYardstick = "00:00 [뉴스제목여덟자]";
+
+    /// <summary>The news and stock icons are a little smaller than the service icons, to sit level with the text.</summary>
+    private const float SlotIconShareOfHeight = 0.58f;
+
+    /// <summary>The headline's time is secondary to its title, so it is set smaller.</summary>
+    private const float NewsTimeShareOfFont = 0.8f;
 
     /// <summary>How much of the left slot the headline box takes. The rest is the logo and the active application.</summary>
     private const float NewsShareOfSlot = 0.55f;
@@ -126,6 +135,7 @@ internal static class BandRenderer
 
         var foregroundColour = Color.FromArgb(typography.TextColourArgb);
         using var valueFont = CreateFont(typography, surface.Height, 1f);
+        using var newsTimeFont = CreateFont(typography, surface.Height, NewsTimeShareOfFont);
         using var labelFont = CreateFont(typography, surface.Height, 0.58f);
         using var rateFont = CreateFont(typography, surface.Height, 0.68f);
         using var foreground = new SolidBrush(foregroundColour);
@@ -137,9 +147,10 @@ internal static class BandRenderer
         var imageRight = imageBounds.IsEmpty ? slots.Left.Left : imageBounds.Right;
         var contentLeft = LeftContentStart(slots.Left, imageRight, padding);
         var (newsBox, quoteBox, newsCramped) = LeftBoxes(g, slots.Left, activeApp, valueFont, padding, contentLeft);
-        DrawActiveApp(g, slots.Left, activeApp, valueFont, palette, padding, contentLeft, newsBox.Left);
-        DrawQuote(g, quoteBox, quote, valueFont, palette.For(quoteBox));
-        var newsBounds = DrawNews(g, newsBox, news, valueFont, palette);
+        var nameLimit = quote is null && newsBox.Width <= 0 ? slots.Left.Right - padding : newsBox.Left;
+        DrawActiveApp(g, slots.Left, activeApp, valueFont, palette, padding, contentLeft, nameLimit);
+        DrawQuote(g, quoteBox, quote, valueFont, palette.For(quoteBox), padding);
+        var newsBounds = DrawNews(g, newsBox, news, valueFont, newsTimeFont, palette, padding);
         var itemsLeft = DrawItems(
             g,
             slots.Right,
@@ -285,7 +296,8 @@ internal static class BandRenderer
             return (closed, closed, true);
         }
 
-        var quoteWidth = Math.Min(room, Measure(g, QuoteYardstick, font, format) + 2);
+        var iconRoom = SlotIconSize(slot.Height) + SlotIconGap(padding);
+        var quoteWidth = Math.Min(room, Measure(g, QuoteYardstick, font, format) + 2 + iconRoom);
         var nameWidth = string.IsNullOrWhiteSpace(activeApp)
             ? 0
             : Measure(g, activeApp, font, format) + 2 + gap;
@@ -293,32 +305,32 @@ internal static class BandRenderer
         // Judged against a yardstick rather than the name in the foreground, so switching windows cannot keep
         // turning the news off and on.
         var cramped = room - quoteWidth - gap - Measure(g, NameYardstick, font, format) - gap
-            < Measure(g, NewsYardstick, font, format);
+            < Measure(g, NewsYardstick, font, format) + iconRoom;
 
         var newsWidth = Math.Clamp(
             (int)Math.Round(slot.Width * NewsShareOfSlot),
             0,
             Math.Max(0, room - quoteWidth - gap - nameWidth));
-        if (newsWidth <= 0)
-        {
-            return (closed, new Rectangle(slot.Right - padding - quoteWidth, slot.Top, quoteWidth, slot.Height), cramped);
-        }
 
         // A gap off the bar as well, so the quote does not look stuck to the cutout.
         var quoteLeft = slot.Right - padding - quoteWidth;
+        var quoteBox = new Rectangle(quoteLeft, slot.Top, quoteWidth, slot.Height);
+        if (newsWidth <= 0)
+        {
+            // Anchored at the quote so a long application name is cut short before it reaches the reading.
+            return (new Rectangle(quoteLeft, slot.Top, 0, slot.Height), quoteBox, cramped);
+        }
 
-        return (
-            new Rectangle(quoteLeft - gap - newsWidth, slot.Top, newsWidth, slot.Height),
-            new Rectangle(quoteLeft, slot.Top, quoteWidth, slot.Height),
-            cramped);
+        return (new Rectangle(quoteLeft - gap - newsWidth, slot.Top, newsWidth, slot.Height), quoteBox, cramped);
     }
 
     /// <summary>
-    /// One registered symbol, centred in its own fixed box. The move is coloured on its own so a rise or a fall
-    /// can be read without the numbers. The price and the move keep their room and a long name is cut short,
-    /// because a fund with a twenty-letter name would otherwise push the reading out of the box.
+    /// One registered symbol laid out in fixed columns, so nothing moves when the symbol or the reading changes: the
+    /// icon and name start at the left, the move is right-aligned in a column against the bar, and the price is
+    /// right-aligned against that column. The move is coloured on its own so a rise or a fall can be read without the
+    /// numbers. A long name is cut short rather than pushing the reading out.
     /// </summary>
-    private static void DrawQuote(Graphics g, Rectangle box, StockQuote? quote, Font font, Ink ink)
+    private static void DrawQuote(Graphics g, Rectangle box, StockQuote? quote, Font font, Ink ink, int padding)
     {
         if (quote is null || box.Width <= 0)
         {
@@ -327,33 +339,32 @@ internal static class BandRenderer
 
         using var format = LeftTextFormat();
         var change = quote.ChangePercent.Trim();
-        // The separators lead rather than trail, because a trailing space is measured but not drawn, which
-        // shifted the centred group by a dozen pixels as the reading changed.
-        var price = $" {quote.Price}";
-        var move = change.Length == 0 ? string.Empty : $" {StockPresentation.Marker(quote.Direction)}{change}%";
+        var move = change.Length == 0 ? string.Empty : $"{StockPresentation.Marker(quote.Direction)}{change}%";
 
-        var moveWidth = move.Length == 0 ? 0 : Math.Min(box.Width, Measure(g, move, font, format) + 2);
-        var priceWidth = Math.Min(box.Width - moveWidth, Measure(g, price, font, format) + 2);
-        var nameWidth = Math.Min(
-            Measure(g, quote.Name, font, format) + 2,
-            Math.Max(0, box.Width - priceWidth - moveWidth));
-        var left = box.Left + Math.Max(0, (box.Width - nameWidth - priceWidth - moveWidth) / 2);
+        var icon = SlotIconSize(box.Height);
+        var gap = SlotIconGap(padding);
+        var nameLeft = box.Left + Math.Min(box.Width, icon + gap);
+        var moveLeft = Math.Max(nameLeft, box.Right - Measure(g, MoveYardstick, font, format) - 2);
+        var priceLeft = Math.Max(nameLeft, moveLeft - Measure(g, quote.Price, font, format) - 2);
+        var nameWidth = Math.Min(Measure(g, quote.Name, font, format) + 2, Math.Max(0, priceLeft - (gap * 2) - nameLeft));
 
-        Write(g, quote.Name, font, format, ink, new RectangleF(left, box.Top, nameWidth, box.Height));
-        Write(g, price, font, format, ink, new RectangleF(left + nameWidth, box.Top, priceWidth, box.Height));
-        if (moveWidth <= 0)
+        BandIcons.DrawStock(g, new RectangleF(box.Left, box.Top + ((box.Height - icon) / 2f), icon, icon));
+        Write(g, quote.Name, font, format, ink, new RectangleF(nameLeft, box.Top, nameWidth, box.Height));
+        WriteInBox(g, quote.Price, font, format, ink, RectangleF.FromLTRB(priceLeft, box.Top, moveLeft, box.Bottom), StringAlignment.Far);
+        if (move.Length == 0)
         {
             return;
         }
 
         using var brush = new SolidBrush(StockColour(quote.Direction, ink.Colour));
-        Write(
+        WriteInBox(
             g,
             move,
             font,
             format,
             ink with { Foreground = brush },
-            new RectangleF(left + nameWidth + priceWidth, box.Top, moveWidth, box.Height));
+            RectangleF.FromLTRB(moveLeft, box.Top, box.Right, box.Bottom),
+            StringAlignment.Far);
     }
 
     internal static Color StockColour(StockDirection direction, Color text)
@@ -377,23 +388,51 @@ internal static class BandRenderer
     /// <summary>Light text means the band behind it is dark.</summary>
     private static bool IsLight(Color text) => ColourContrast.RelativeLuminance(text) > 0.4;
 
-    /// <returns>Where the text itself landed, so a click beside a short headline does not open it.</returns>
-    private static Rectangle DrawNews(Graphics g, Rectangle box, NewsItem? news, Font font, InkPalette palette)
+    private static int SlotIconSize(int height) => Math.Max(8, (int)Math.Round(height * SlotIconShareOfHeight));
+
+    private static int SlotIconGap(int padding) => Math.Max(3, padding / 2);
+
+    /// <returns>Where the icon and text landed, so a click beside a short headline does not open it.</returns>
+    private static Rectangle DrawNews(
+        Graphics g,
+        Rectangle box,
+        NewsItem? news,
+        Font font,
+        Font timeFont,
+        InkPalette palette,
+        int padding)
     {
         if (news is null || box.Width <= 0)
         {
             return Rectangle.Empty;
         }
 
-        var text = NewsPresentation.Headline(news, TimeZoneInfo.Local, CultureInfo.CurrentCulture);
+        var time = NewsPresentation.Time(news, TimeZoneInfo.Local, CultureInfo.CurrentCulture);
+        var title = NewsPresentation.Title(news);
         using var format = LeftTextFormat();
 
-        var measured = (int)Math.Ceiling(DirectWriteText.Measure(text, font)) + 2;
-        var width = Math.Min(box.Width, measured);
+        var icon = SlotIconSize(box.Height);
+        var gap = SlotIconGap(padding);
+        var timeWidth = time is null ? 0 : (int)Math.Ceiling(DirectWriteText.Measure(time, timeFont)) + 2 + gap;
+        var titleRoom = box.Width - icon - gap - timeWidth;
+        if (titleRoom <= 0)
+        {
+            return Rectangle.Empty;
+        }
+
+        var titleWidth = Math.Min(titleRoom, (int)Math.Ceiling(DirectWriteText.Measure(title, font)) + 2);
 
         // Held against the right edge so the headline reads as one group with the quote beside it.
-        var bounds = new Rectangle(box.Right - width, box.Top, width, box.Height);
-        Write(g, text, font, format, palette.For(bounds), new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
+        var titleLeft = box.Right - titleWidth;
+        var bounds = Rectangle.FromLTRB(titleLeft - timeWidth - gap - icon, box.Top, box.Right, box.Bottom);
+        var ink = palette.For(bounds);
+        BandIcons.DrawNews(g, new RectangleF(bounds.Left, box.Top + ((box.Height - icon) / 2f), icon, icon));
+        if (time is not null)
+        {
+            Write(g, time, timeFont, format, ink, new RectangleF(titleLeft - timeWidth, box.Top, timeWidth - gap, box.Height));
+        }
+
+        Write(g, title, font, format, ink, new RectangleF(titleLeft, box.Top, titleWidth, box.Height));
 
         return bounds;
     }
@@ -471,13 +510,14 @@ internal static class BandRenderer
     }
 
     /// <summary>
-    /// One spacing for every gap among the performance readouts and service icons, including where the two groups
-    /// meet, so they read as one evenly spaced row. Gaps next to anything else, such as the clock, stay standard.
+    /// One spacing for every gap among the performance readouts, service icons and the clock, so they read as one
+    /// evenly spaced row. Gaps next to anything else, such as a custom item, stay standard.
     /// </summary>
     internal static int GroupSpacing(BandItemKind right, BandItemKind left, BandSpacing spacing) =>
-        (IsMetric(right) || IsServiceIcon(right)) && (IsMetric(left) || IsServiceIcon(left))
-            ? spacing.MetricIconPercent
-            : 100;
+        InSpacedRow(right) && InSpacedRow(left) ? spacing.MetricIconPercent : 100;
+
+    private static bool InSpacedRow(BandItemKind kind) =>
+        IsMetric(kind) || IsServiceIcon(kind) || kind == BandItemKind.Clock;
 
     private static bool IsMetric(BandItemKind kind) =>
         kind is BandItemKind.Cpu or BandItemKind.Gpu or BandItemKind.Memory or BandItemKind.Disk or BandItemKind.Network;
@@ -616,9 +656,16 @@ internal static class BandRenderer
         _ => MeasureInline(g, item, valueFont, format, inner)
     };
 
+    /// <summary>
+    /// The clock is sized to the date it shows, so the spacing setting alone decides its gap; it moves at most once
+    /// a day. Other labels keep their yardstick so a changing reading never shifts the row.
+    /// </summary>
+    private static string InlineLabelYardstick(BandItem item) =>
+        item.Kind == BandItemKind.Clock ? item.Label : item.LabelYardstick;
+
     private static int MeasureInline(Graphics g, BandItem item, Font font, StringFormat format, int inner)
     {
-        var width = item.Label.Length == 0 ? 0 : Measure(g, item.LabelYardstick, font, format);
+        var width = item.Label.Length == 0 ? 0 : Measure(g, InlineLabelYardstick(item), font, format);
         return item.Values.Aggregate(width, (current, value) =>
             current + inner + Measure(g, value.Template, font, format));
     }
@@ -1117,7 +1164,7 @@ internal static class BandRenderer
         Ink ink,
         int inner)
     {
-        var labelWidth = item.Label.Length == 0 ? 0 : Measure(g, item.LabelYardstick, font, format);
+        var labelWidth = item.Label.Length == 0 ? 0 : Measure(g, InlineLabelYardstick(item), font, format);
         if (labelWidth > 0)
         {
             WriteInBox(

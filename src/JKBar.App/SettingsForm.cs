@@ -632,7 +632,7 @@ internal sealed class SettingsForm : Form
         AddRow(items, "성능 카운터 갱신(초)", _metricsRefresh);
         AddRow(items, "성능 카운터 표시 방식", _percentStyle);
         AddRow(items, "성능 카운터 그래프 색", graphColourRow);
-        AddRow(items, "성능 카운터·서비스 아이콘 간격", SliderRow(_metricIconSpacing, _metricIconSpacingValue));
+        AddRow(items, "성능 카운터·서비스 아이콘·시계 간격", SliderRow(_metricIconSpacing, _metricIconSpacingValue));
         AddRow(items, "시계 표시", clockRow);
         AddRow(items, "내장 앱 확장 알림", BuildSyncAlertOptions());
         AddRow(items, "오른쪽 표시 항목", itemLayout, fill: true);

@@ -15,7 +15,9 @@ public sealed class BandLayoutOptionsTests
     [InlineData(BandItemKind.Cpu, BandItemKind.Memory, 250)]
     [InlineData(BandItemKind.Disk, BandItemKind.Network, 250)]
     [InlineData(BandItemKind.OneDrive, BandItemKind.Syncthing, 250)]
-    [InlineData(BandItemKind.Clock, BandItemKind.Syncthing, 100)]
+    [InlineData(BandItemKind.Clock, BandItemKind.Syncthing, 250)]
+    [InlineData(BandItemKind.Clock, BandItemKind.Network, 250)]
+    [InlineData(BandItemKind.Custom, BandItemKind.Clock, 100)]
     [InlineData(BandItemKind.Cpu, BandItemKind.Custom, 100)]
     public void OneSpacingCoversReadoutsIconsAndTheSeamBetween(BandItemKind right, BandItemKind left, int expected)
     {
