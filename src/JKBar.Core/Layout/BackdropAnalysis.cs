@@ -13,6 +13,9 @@ public readonly record struct BackdropAnalysis(Color Mean, double DarkLuminance,
     private const double GradientWeight = 6;
     private const double SpreadWeight = 1.5;
 
+    /// <summary>Average colour of each pixel column, left to right, so text can be judged against what is right behind it.</summary>
+    public Color[] Columns { get; init; } = [];
+
     public static BackdropAnalysis Analyze(ReadOnlySpan<byte> bgra, int width, int height)
     {
         var count = width * height;
@@ -70,11 +73,32 @@ public readonly record struct BackdropAnalysis(Color Mean, double DarkLuminance,
         gradient = steps == 0 ? 0 : gradient / steps;
         Array.Sort(luminance);
 
+        var columns = new Color[width];
+        for (var x = 0; x < width; x++)
+        {
+            long columnRed = 0, columnGreen = 0, columnBlue = 0;
+            for (var y = 0; y < height; y++)
+            {
+                var at = (y * width + x) * 4;
+                columnBlue += bgra[at];
+                columnGreen += bgra[at + 1];
+                columnRed += bgra[at + 2];
+            }
+
+            columns[x] = Color.FromArgb(
+                (int)Math.Round(columnRed / (double)height),
+                (int)Math.Round(columnGreen / (double)height),
+                (int)Math.Round(columnBlue / (double)height));
+        }
+
         return new BackdropAnalysis(
             mean,
             luminance[(int)((count - 1) * 0.1)],
             luminance[(int)((count - 1) * 0.9)],
-            Math.Clamp(GradientWeight * gradient + SpreadWeight * spread, 0d, 1d));
+            Math.Clamp(GradientWeight * gradient + SpreadWeight * spread, 0d, 1d))
+        {
+            Columns = columns
+        };
     }
 
     /// <summary>Three box passes each way approximate a Gaussian. Edges repeat their last pixel; alpha is untouched.</summary>

@@ -116,6 +116,62 @@ public sealed class BandBackdropTests
     }
 
     [Fact]
+    public void RegionsGiveEachSideOfTheBandItsOwnInk()
+    {
+        using var surface = new Bitmap(800, 40, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(surface))
+        {
+            BandRenderer.Paint(
+                g,
+                surface.Size,
+                new NotchGeometry.Rect(360, 0, 440, 40),
+                12,
+                BandStyle.Default,
+                new BandTypographySettings(),
+                image: null,
+                imageScalePercent: 100,
+                activeApp: "Visual Studio Code",
+                quote: null,
+                news: null,
+                items: [new JKBar.Core.Presentation.BandItem("Mon 28", "19:07", "00:00") { Kind = JKBar.Core.Presentation.BandItemKind.Clock }],
+                runningProcesses: [],
+                regions: [new RegionLook(AdaptiveAppearance.DarkText, false), new RegionLook(AdaptiveAppearance.LightText, false)]);
+        }
+
+        var (leftDark, leftLight) = InkPixels(surface, 0, 360);
+        var (rightDark, rightLight) = InkPixels(surface, 440, 800);
+        Assert.True(leftDark > 20 && leftLight == 0, $"left dark {leftDark}, light {leftLight}");
+        Assert.True(rightLight > 20 && rightDark == 0, $"right dark {rightDark}, light {rightLight}");
+    }
+
+    private static (int Dark, int Light) InkPixels(Bitmap surface, int from, int to)
+    {
+        int dark = 0, light = 0;
+        for (var x = from; x < to; x++)
+        {
+            for (var y = 0; y < surface.Height; y++)
+            {
+                var pixel = surface.GetPixel(x, y);
+                if (pixel.A < 250)
+                {
+                    continue;
+                }
+
+                if (pixel.R < 60)
+                {
+                    dark++;
+                }
+                else if (pixel.R > 200)
+                {
+                    light++;
+                }
+            }
+        }
+
+        return (dark, light);
+    }
+
+    [Fact]
     public void MissingWallpaperFallsBackToTheFillColour()
     {
         var monitor = new Rectangle(0, 0, 400, 300);

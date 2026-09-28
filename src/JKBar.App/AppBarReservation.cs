@@ -273,7 +273,8 @@ internal sealed class AppBarReservation : Form
                 _news,
                 _items,
                 _runningProcesses,
-                _appearance.Backdrop);
+                _appearance.Backdrop,
+                look?.Regions);
 
             _imageBounds = areas.Image;
             _newsBounds = areas.News;

@@ -102,8 +102,8 @@ public class AdaptiveAppearanceTests
         // Close to the luminance where dark and light text read equally well.
         var borderline = Analysis(Color.FromArgb(118, 118, 118), complexity: 0);
 
-        var fromDark = AdaptiveAppearance.Resolve(borderline, Color.Black, 0, false, AdaptiveAppearance.DarkText);
-        var fromLight = AdaptiveAppearance.Resolve(borderline, Color.Black, 0, false, AdaptiveAppearance.LightText);
+        var fromDark = AdaptiveAppearance.Resolve(borderline, Color.Black, 0, false, Showing(AdaptiveAppearance.DarkText));
+        var fromLight = AdaptiveAppearance.Resolve(borderline, Color.Black, 0, false, Showing(AdaptiveAppearance.LightText));
 
         Assert.Equal(AdaptiveAppearance.DarkText, fromDark.Text);
         Assert.Equal(AdaptiveAppearance.LightText, fromLight.Text);
@@ -194,6 +194,87 @@ public class AdaptiveAppearanceTests
             Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
         }
     }
+
+    [Fact]
+    public void SplitWallpaperGivesEachSideItsOwnReadableText()
+    {
+        // Bright stone on the left, deep shade on the right, under the grey 20% tint that exposed the problem.
+        var columns = Enumerable.Range(0, 64)
+            .Select(x => x < 32 ? Color.FromArgb(230, 225, 215) : Color.FromArgb(40, 34, 30))
+            .ToArray();
+        var backdrop = new BackdropAnalysis(Color.FromArgb(135, 130, 122), 0.02, 0.75, 0) { Columns = columns };
+        var tint = Color.FromArgb(128, 128, 128);
+
+        var look = AdaptiveAppearance.Resolve(backdrop, tint, 20, false, null);
+
+        Assert.Equal(AdaptiveAppearance.RegionCount, look.Regions.Length);
+        Assert.All(look.Regions[..16], region => Assert.Equal(AdaptiveAppearance.DarkText, region.Text));
+        Assert.All(look.Regions[16..], region => Assert.Equal(AdaptiveAppearance.LightText, region.Text));
+        for (var index = 0; index < look.Regions.Length; index++)
+        {
+            var surface = ColourContrast.Mix(tint, columns[index * 2], look.OpacityPercent / 100d);
+            var contrast = ColourContrast.Ratio(
+                ColourContrast.RelativeLuminance(surface),
+                ColourContrast.RelativeLuminance(look.Regions[index].Text));
+            Assert.True(contrast >= AdaptiveAppearance.MinimumContrast, $"region {index}: {contrast:0.00}");
+            Assert.False(look.Regions[index].Shadow);
+        }
+    }
+
+    [Fact]
+    public void EachRegionKeepsItsOwnBorderlineChoice()
+    {
+        var columns = Enumerable.Repeat(Color.FromArgb(118, 118, 118), 4).ToArray();
+        var backdrop = new BackdropAnalysis(columns[0], 0.18, 0.18, 0) { Columns = columns };
+        var showing = new AdaptiveLook(0, AdaptiveAppearance.DarkText, false)
+        {
+            Regions =
+            [
+                new RegionLook(AdaptiveAppearance.DarkText, false),
+                new RegionLook(AdaptiveAppearance.LightText, false),
+                new RegionLook(AdaptiveAppearance.DarkText, false),
+                new RegionLook(AdaptiveAppearance.LightText, false)
+            ]
+        };
+
+        var look = AdaptiveAppearance.Resolve(backdrop, Color.Black, 0, false, showing);
+
+        Assert.Equal(showing.Regions.Select(region => region.Text), look.Regions.Select(region => region.Text));
+        // Neither colour reaches AA on this grey, so every slice also asks for a shadow.
+        Assert.All(look.Regions, region => Assert.True(region.Shadow));
+    }
+
+    [Fact]
+    public void ColumnsAverageEachPixelColumn()
+    {
+        var pixels = Fill(2, 2, Color.FromArgb(200, 100, 0));
+        pixels[4] = 255; pixels[5] = 255; pixels[6] = 255;
+        pixels[12] = 55; pixels[13] = 55; pixels[14] = 55;
+
+        var columns = BackdropAnalysis.Analyze(pixels, 2, 2).Columns;
+
+        Assert.Equal(Color.FromArgb(200, 100, 0).ToArgb(), columns[0].ToArgb());
+        Assert.Equal(Color.FromArgb(155, 155, 155).ToArgb(), columns[1].ToArgb());
+    }
+
+    [Fact]
+    public void TransitionEasesEveryRegionAndEqualLooksDoNotAnimate()
+    {
+        var start = new DateTimeOffset(2026, 9, 28, 12, 0, 0, TimeSpan.Zero);
+        AdaptiveLook Look(Color text) => new(25, text, false) { Regions = [new RegionLook(text, false)] };
+        var transition = new AppearanceTransition();
+
+        transition.Retarget(Look(AdaptiveAppearance.DarkText), start);
+        transition.Retarget(Look(AdaptiveAppearance.DarkText), start);
+        Assert.False(transition.IsRunning(start));
+
+        transition.Retarget(Look(AdaptiveAppearance.LightText), start);
+        var middle = transition.Current(start + AppearanceTransition.Duration / 2)!;
+        Assert.InRange(middle.Regions[0].Text.R, 100, 160);
+        Assert.Equal(Look(AdaptiveAppearance.LightText), transition.Current(start + AppearanceTransition.Duration));
+    }
+
+    private static AdaptiveLook Showing(Color text) => new(0, text, false);
 
     private static BackdropAnalysis Analysis(Color mean, double complexity)
     {

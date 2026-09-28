@@ -82,6 +82,7 @@ internal static class BandRenderer
     /// <param name="items">In display order, left to right.</param>
     /// <param name="runningProcesses">Watched executables that are running; their icons sit left of the readouts.</param>
     /// <param name="backdrop">An opaque frosted wallpaper strip to tint instead of the plain translucent fill.</param>
+    /// <param name="regions">Adaptive text choices for equal slices of the band; each element uses the slice behind it.</param>
     internal static BandHitAreas Paint(
         Graphics g,
         Size surface,
@@ -96,7 +97,8 @@ internal static class BandRenderer
         NewsItem? news,
         IReadOnlyList<BandItem> items,
         IReadOnlyList<RunningProcess> runningProcesses,
-        Image? backdrop = null)
+        Image? backdrop = null,
+        RegionLook[]? regions = null)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -130,12 +132,13 @@ internal static class BandRenderer
             ? new SolidBrush(ShadowColourFor(foregroundColour))
             : null;
         var ink = new Ink(foreground, shadow, foregroundColour, style.GraphColour ?? foregroundColour);
+        using var palette = new InkPalette(ink, regions, surface.Width, typography.TextShadow, style.GraphColour);
         var imageRight = imageBounds.IsEmpty ? slots.Left.Left : imageBounds.Right;
         var contentLeft = LeftContentStart(slots.Left, imageRight, padding);
         var (newsBox, quoteBox, newsCramped) = LeftBoxes(g, slots.Left, activeApp, valueFont, padding, contentLeft);
-        DrawActiveApp(g, slots.Left, activeApp, valueFont, ink, padding, contentLeft, newsBox.Left);
-        DrawQuote(g, quoteBox, quote, valueFont, ink);
-        var newsBounds = DrawNews(g, newsBox, news, valueFont, ink);
+        DrawActiveApp(g, slots.Left, activeApp, valueFont, palette, padding, contentLeft, newsBox.Left);
+        DrawQuote(g, quoteBox, quote, valueFont, palette.For(quoteBox));
+        var newsBounds = DrawNews(g, newsBox, news, valueFont, palette);
         var itemsLeft = DrawItems(
             g,
             slots.Right,
@@ -143,9 +146,9 @@ internal static class BandRenderer
             valueFont,
             labelFont,
             rateFont,
-            ink,
+            palette,
             padding);
-        var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, ink);
+        var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, palette);
 
         return new BandHitAreas(imageBounds, newsBounds, processIcons, news is not null && newsCramped);
     }
@@ -227,7 +230,7 @@ internal static class BandRenderer
         NotchGeometry.Rect slot,
         string? name,
         Font font,
-        Ink ink,
+        InkPalette palette,
         int padding,
         int left,
         int limit)
@@ -245,7 +248,8 @@ internal static class BandRenderer
 
         using var format = LeftTextFormat();
         var measured = (int)Math.Ceiling(DirectWriteText.Measure(name, font)) + 2;
-        Write(g, name, font, format, ink, new RectangleF(left, slot.Top, Math.Min(available, measured), slot.Height));
+        var bounds = new RectangleF(left, slot.Top, Math.Min(available, measured), slot.Height);
+        Write(g, name, font, format, palette.For(bounds), bounds);
     }
 
     /// <summary>
@@ -372,7 +376,7 @@ internal static class BandRenderer
     private static bool IsLight(Color text) => ColourContrast.RelativeLuminance(text) > 0.4;
 
     /// <returns>Where the text itself landed, so a click beside a short headline does not open it.</returns>
-    private static Rectangle DrawNews(Graphics g, Rectangle box, NewsItem? news, Font font, Ink ink)
+    private static Rectangle DrawNews(Graphics g, Rectangle box, NewsItem? news, Font font, InkPalette palette)
     {
         if (news is null || box.Width <= 0)
         {
@@ -387,7 +391,7 @@ internal static class BandRenderer
 
         // Held against the right edge so the headline reads as one group with the quote beside it.
         var bounds = new Rectangle(box.Right - width, box.Top, width, box.Height);
-        Write(g, text, font, format, ink, new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
+        Write(g, text, font, format, palette.For(bounds), new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height));
 
         return bounds;
     }
@@ -413,7 +417,7 @@ internal static class BandRenderer
         Font valueFont,
         Font labelFont,
         Font rateFont,
-        Ink ink,
+        InkPalette palette,
         int padding)
     {
         if (slot.Width <= 0 || items.Count == 0)
@@ -442,15 +446,16 @@ internal static class BandRenderer
                 return leftmost;
             }
 
+            var bounds = new RectangleF(start, slot.Top, width, slot.Height);
             DrawItem(
                 g,
                 item,
-                new RectangleF(start, slot.Top, width, slot.Height),
+                bounds,
                 valueFont,
                 labelFont,
                 rateFont,
                 format,
-                ink,
+                palette.For(bounds),
                 inner);
 
             var nextKind = i > 0 ? items[i - 1].Kind : BandItemKind.Custom;
@@ -477,7 +482,7 @@ internal static class BandRenderer
         IReadOnlyList<RunningProcess> processes,
         int readoutsLeft,
         int padding,
-        Ink ink)
+        InkPalette palette)
     {
         if (slot.Width <= 0 || processes.Count == 0)
         {
@@ -513,7 +518,7 @@ internal static class BandRenderer
             g.DrawImage(icon, bounds);
             if (watched.ShowProcessCount)
             {
-                DrawCountBadge(g, bounds, diameter, processes[i].Count, ink);
+                DrawCountBadge(g, bounds, diameter, processes[i].Count, palette.For(bounds));
             }
             drawn.Add(new ProcessIcon(watched, bounds));
             right = start - gap;
@@ -1165,6 +1170,71 @@ internal static class BandRenderer
     /// <param name="Colour">The same colour the foreground brush paints, for the shades a graph needs.</param>
     /// <param name="Graph">What the load charts are drawn in, which the user can set apart from the text.</param>
     private readonly record struct Ink(Brush Foreground, Brush? Shadow, Color Colour, Color Graph);
+
+    /// <summary>
+    /// Hands out the ink for whatever sits over a given stretch of the band. Without adaptive regions every element
+    /// gets the band's own ink; with them, the slice under most of the element decides, and an element straddling
+    /// slices that disagree gets a shadow because part of it sits on the other kind of background.
+    /// </summary>
+    private sealed class InkPalette(Ink fallback, RegionLook[]? regions, int width, bool userShadow, Color? graph)
+        : IDisposable
+    {
+        private readonly Dictionary<(int Argb, bool Shadow), Ink> _inks = [];
+
+        internal Ink For(RectangleF bounds)
+        {
+            if (regions is not { Length: > 0 } || width <= 0 || bounds.Width <= 0)
+            {
+                return fallback;
+            }
+
+            var slice = width / (float)regions.Length;
+            var first = Math.Clamp((int)(bounds.Left / slice), 0, regions.Length - 1);
+            var last = Math.Clamp((int)((bounds.Right - 1) / slice), 0, regions.Length - 1);
+            var chosen = regions[first];
+            var widest = 0f;
+            var shadow = false;
+            for (var index = first; index <= last; index++)
+            {
+                var overlap = Math.Min(bounds.Right, (index + 1) * slice) - Math.Max(bounds.Left, index * slice);
+                if (overlap > widest)
+                {
+                    widest = overlap;
+                    chosen = regions[index];
+                }
+
+                shadow |= regions[index].Shadow;
+            }
+
+            for (var index = first; index <= last; index++)
+            {
+                shadow |= regions[index].Text.ToArgb() != chosen.Text.ToArgb();
+            }
+
+            shadow |= userShadow;
+            var key = (chosen.Text.ToArgb(), shadow);
+            if (!_inks.TryGetValue(key, out var ink))
+            {
+                ink = new Ink(
+                    new SolidBrush(chosen.Text),
+                    shadow ? new SolidBrush(ShadowColourFor(chosen.Text)) : null,
+                    chosen.Text,
+                    graph ?? chosen.Text);
+                _inks[key] = ink;
+            }
+
+            return ink;
+        }
+
+        public void Dispose()
+        {
+            foreach (var ink in _inks.Values)
+            {
+                ink.Foreground.Dispose();
+                ink.Shadow?.Dispose();
+            }
+        }
+    }
 
     /// <summary>The letter in front of a rate row, and the colour that tells the two rows apart at a glance.</summary>
     private readonly record struct Marker(string Text, Color Colour)

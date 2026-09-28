@@ -12,7 +12,11 @@ internal sealed class AdaptiveBandAppearance : IDisposable
     // Slideshows and Spotlight swap the picture without always broadcasting a settings change.
     private readonly System.Windows.Forms.Timer _recheck = new() { Interval = 60_000 };
     private readonly System.Windows.Forms.Timer _frames = new() { Interval = 20 };
+    // The shell rewrites its transcoded copy in several writes, so a burst of changes settles into one refresh.
+    private readonly System.Windows.Forms.Timer _settle = new() { Interval = 750 };
     private readonly AppearanceTransition _transition = new();
+    private SynchronizationContext? _ui;
+    private FileSystemWatcher? _themes;
 
     private bool _adaptive;
     private bool _blur;
@@ -37,6 +41,11 @@ internal sealed class AdaptiveBandAppearance : IDisposable
     internal AdaptiveBandAppearance()
     {
         _recheck.Tick += (_, _) => Refresh();
+        _settle.Tick += (_, _) =>
+        {
+            _settle.Stop();
+            Refresh();
+        };
         _frames.Tick += (_, _) =>
         {
             if (!_transition.IsRunning(DateTimeOffset.Now))
@@ -153,7 +162,7 @@ internal sealed class AdaptiveBandAppearance : IDisposable
     private void Retarget()
     {
         var target = _adaptive && Active && _analysis is { } analysis
-            ? AdaptiveAppearance.Resolve(analysis, _style.Colour, _style.Opacity, _opaque, _transition.Target?.Text)
+            ? AdaptiveAppearance.Resolve(analysis, _style.Colour, _style.Opacity, _opaque, _transition.Target)
             : null;
         var now = DateTimeOffset.Now;
         var previous = _transition.Target;
@@ -223,12 +232,62 @@ internal sealed class AdaptiveBandAppearance : IDisposable
         _subscribed = subscribe;
         if (subscribe)
         {
+            // Taken here rather than at construction, which happens before any control has installed the UI context.
+            _ui = SynchronizationContext.Current;
             SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
+            _themes = WatchThemes();
         }
         else
         {
             SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
+            _themes?.Dispose();
+            _themes = null;
+            _settle.Stop();
         }
+    }
+
+    /// <summary>
+    /// Changing the picture through Settings does not reliably broadcast a settings change, but the shell always
+    /// rewrites its transcoded copies, one per monitor, in this folder.
+    /// </summary>
+    private FileSystemWatcher? WatchThemes()
+    {
+        var ui = _ui;
+        var folder = Path.GetDirectoryName(DesktopWallpaperInterop.TranscodedPath);
+        if (ui is null || folder is null || !Directory.Exists(folder))
+        {
+            return null;
+        }
+
+        try
+        {
+            var watcher = new FileSystemWatcher(folder, "Transcoded*")
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
+            };
+            FileSystemEventHandler changed = (_, _) => ui.Post(_ => Settle(), null);
+            watcher.Changed += changed;
+            watcher.Created += changed;
+            watcher.Renamed += (_, _) => ui.Post(_ => Settle(), null);
+            watcher.EnableRaisingEvents = true;
+            return watcher;
+        }
+        catch (Exception error) when (error is IOException or ArgumentException or UnauthorizedAccessException)
+        {
+            // The minute check still notices the change, only later.
+            return null;
+        }
+    }
+
+    private void Settle()
+    {
+        if (_disposed || !_subscribed)
+        {
+            return;
+        }
+
+        _settle.Stop();
+        _settle.Start();
     }
 
     /// <summary>A wallpaper change arrives as Desktop; transparency and high contrast as General or Accessibility.</summary>
@@ -237,7 +296,15 @@ internal sealed class AdaptiveBandAppearance : IDisposable
         if (e.Category is UserPreferenceCategory.Desktop or UserPreferenceCategory.General
             or UserPreferenceCategory.Accessibility or UserPreferenceCategory.Color or UserPreferenceCategory.VisualStyle)
         {
-            Refresh();
+            // Deferred so it runs on the UI thread after the broadcast, which can precede the shell's new picture.
+            if (_ui is { } ui)
+            {
+                ui.Post(_ =>
+                {
+                    Refresh();
+                    Settle();
+                }, null);
+            }
         }
     }
 
@@ -252,6 +319,7 @@ internal sealed class AdaptiveBandAppearance : IDisposable
         Subscribe(false);
         _recheck.Dispose();
         _frames.Dispose();
+        _settle.Dispose();
         _generation++;
         Backdrop?.Dispose();
         Backdrop = null;
