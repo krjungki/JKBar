@@ -23,7 +23,6 @@ internal sealed class AdaptiveBandAppearance : IDisposable
     private bool _opaque;
     private bool _subscribed;
     private bool _disposed;
-    private BandStyle _style = BandStyle.Default;
     private Rectangle _band;
     private string? _signature;
     private int _generation;
@@ -67,12 +66,6 @@ internal sealed class AdaptiveBandAppearance : IDisposable
         _adaptive = adaptive;
         _blur = blur;
         Refresh();
-    }
-
-    internal void SetStyle(BandStyle style)
-    {
-        _style = style;
-        Retarget();
     }
 
     /// <summary>An empty rectangle means the band is not reserved and nothing needs watching.</summary>
@@ -162,7 +155,7 @@ internal sealed class AdaptiveBandAppearance : IDisposable
     private void Retarget()
     {
         var target = _adaptive && Active && _analysis is { } analysis
-            ? AdaptiveAppearance.Resolve(analysis, _style.Colour, _style.Opacity, _opaque, _transition.Target)
+            ? AdaptiveAppearance.ResolveAutomatic(analysis, _opaque, _transition.Target)
             : null;
         var now = DateTimeOffset.Now;
         var previous = _transition.Target;

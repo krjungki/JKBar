@@ -11,20 +11,32 @@ public sealed record AdaptiveLook(int OpacityPercent, Color Text, bool Shadow)
     /// <summary>Equal-width slices of the band, left to right. Empty means <see cref="Text"/> applies everywhere.</summary>
     public RegionLook[] Regions { get; init; } = [];
 
+    /// <summary>The band colour chosen from the wallpaper; null keeps the user's own.</summary>
+    public Color? Tint { get; init; }
+
     public bool Equals(AdaptiveLook? other) =>
         other is not null
         && OpacityPercent == other.OpacityPercent
         && Text == other.Text
         && Shadow == other.Shadow
+        && Tint == other.Tint
         && Regions.AsSpan().SequenceEqual(other.Regions);
 
-    public override int GetHashCode() => HashCode.Combine(OpacityPercent, Text, Shadow, Regions.Length);
+    public override int GetHashCode() => HashCode.Combine(OpacityPercent, Text, Shadow, Tint, Regions.Length);
 }
 
 public static class AdaptiveAppearance
 {
     public static readonly Color DarkText = Color.FromArgb(0x18, 0x18, 0x1B);
     public static readonly Color LightText = Color.FromArgb(0xF5, 0xF5, 0xF7);
+
+    /// <summary>The automatic band colours: a pale frost over a light wallpaper, a dark one over a dark wallpaper.</summary>
+    public static readonly Color LightTint = Color.FromArgb(0xF6, 0xF6, 0xF8);
+    public static readonly Color DarkTint = Color.FromArgb(0x1C, 0x1C, 0x1E);
+
+    /// <summary>The automatic tint over a calm (or blurred) wallpaper, and the most a busy one can raise it to.</summary>
+    public const int AutomaticCalmOpacityPercent = 20;
+    public const int AutomaticBusiestOpacityPercent = 60;
 
     /// <summary>The most a busy wallpaper can raise the tint to; the user's own opacity is the floor.</summary>
     public const int BusiestOpacityPercent = 85;
@@ -48,6 +60,28 @@ public static class AdaptiveAppearance
             : baseOpacity >= BusiestOpacityPercent
                 ? baseOpacity
                 : (int)Math.Round(baseOpacity + (BusiestOpacityPercent - baseOpacity) * Math.Clamp(backdrop.Complexity, 0d, 1d));
+        return Resolve(backdrop, tint, opacity, current);
+    }
+
+    /// <summary>
+    /// Picks the band colour and opacity as well as the text, the way the macOS menu bar does: a light frost over a
+    /// light wallpaper, a dark one over a dark wallpaper, thicker only where the wallpaper is busy.
+    /// </summary>
+    public static AdaptiveLook ResolveAutomatic(BackdropAnalysis backdrop, bool opaque, AdaptiveLook? current)
+    {
+        // The tint follows the text the bare wallpaper calls for, with the same margin against flipping back and forth.
+        var shownText = current?.Tint is { } shown ? Same(shown, LightTint) ? DarkText : LightText : (Color?)null;
+        var tint = Same(Choose(backdrop.Mean, shownText), DarkText) ? LightTint : DarkTint;
+        var opacity = opaque
+            ? 100
+            : (int)Math.Round(AutomaticCalmOpacityPercent
+                + (AutomaticBusiestOpacityPercent - AutomaticCalmOpacityPercent) * Math.Clamp(backdrop.Complexity, 0d, 1d));
+
+        return Resolve(backdrop, tint, opacity, current) with { Tint = tint };
+    }
+
+    private static AdaptiveLook Resolve(BackdropAnalysis backdrop, Color tint, int opacity, AdaptiveLook? current)
+    {
         var alpha = opacity / 100d;
 
         var text = Choose(ColourContrast.Mix(tint, backdrop.Mean, alpha), current?.Text);
@@ -177,6 +211,7 @@ public sealed class AppearanceTransition
             ColourContrast.Mix(to.Text, from.Text, eased),
             eased < 0.5 ? from.Shadow : to.Shadow)
         {
+            Tint = to.Tint is { } toTint && from.Tint is { } fromTint ? ColourContrast.Mix(toTint, fromTint, eased) : to.Tint,
             // A different slice count (a resized band) has nothing to ease from, so it takes the new slices at once.
             Regions = from.Regions.Length != to.Regions.Length
                 ? to.Regions

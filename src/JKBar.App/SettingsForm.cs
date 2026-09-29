@@ -58,7 +58,7 @@ internal sealed class SettingsForm : Form
     private readonly Label _fontSummary = new() { AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Panel _textSwatch = new() { Width = 44, Height = 24, BorderStyle = BorderStyle.FixedSingle };
     private readonly CheckBox _textShadow = new() { Text = "글자 그림자 표시", AutoSize = true };
-    private readonly CheckBox _adaptiveAppearance = new() { Text = "바탕화면에 맞춰 글자색과 투명도 자동 조정", AutoSize = true };
+    private readonly CheckBox _adaptiveAppearance = new() { Text = "바탕화면에 맞춰 Bar 색·투명도와 글자색 자동 조정", AutoSize = true };
     private readonly CheckBox _blurredBackdrop = new() { Text = "흐린 바탕화면 배경", AutoSize = true };
     private readonly CheckBox _startWithWindows = new() { Text = "Windows에 로그인하면 JKBar를 시작", AutoSize = true };
     private readonly CheckBox _showNowPlaying = new() { Text = "재생 중인 곡을 노치에 계속 표시", AutoSize = true };
@@ -268,6 +268,7 @@ internal sealed class SettingsForm : Form
         _imagePath.Text = normalized.Appearance.ImagePath ?? string.Empty;
         _textShadow.Checked = normalized.Typography.TextShadow;
         _adaptiveAppearance.Checked = normalized.Appearance.AdaptiveAppearance;
+        UpdateBandTintState();
         _blurredBackdrop.Checked = normalized.Appearance.BlurredBackdrop;
         _startWithWindows.Checked = normalized.Startup.StartWithWindows;
         _showNowPlaying.Checked = normalized.Notch.ShowNowPlaying;
@@ -350,7 +351,11 @@ internal sealed class SettingsForm : Form
         _hideWhenFullscreen.CheckedChanged += (_, _) => RaisePreview();
         _metricsRefresh.ValueChanged += (_, _) => RaisePreview();
         _textShadow.CheckedChanged += (_, _) => RaisePreview();
-        _adaptiveAppearance.CheckedChanged += (_, _) => RaisePreview();
+        _adaptiveAppearance.CheckedChanged += (_, _) =>
+        {
+            UpdateBandTintState();
+            RaisePreview();
+        };
         _blurredBackdrop.CheckedChanged += (_, _) => RaisePreview();
         _newsEnabled.CheckedChanged += (_, _) => RaisePreview();
         _refreshMinutes.ValueChanged += (_, _) => RaisePreview();
@@ -605,7 +610,7 @@ internal sealed class SettingsForm : Form
         adaptiveRow.Controls.Add(_blurredBackdrop);
         adaptiveRow.Controls.Add(new Label
         {
-            Text = "자리 예약 방식에서만 동작합니다. 자동 조정은 위 Bar 투명도를 가장 옅은 값으로 쓰고 배경이 복잡할수록 진하게 칠합니다. Windows 투명 효과가 꺼져 있으면 흐린 배경을 쓰지 않고, 자동 조정은 불투명하게 칠합니다.",
+            Text = "자리 예약 방식에서만 동작합니다. 자동 조정을 켜면 macOS 메뉴 막대처럼 밝은 바탕에는 밝은 막, 어두운 바탕에는 어두운 막을 얇게 깔고 배경이 복잡할수록 진하게 칠합니다. 이때 위 Bar 색깔과 투명도는 쓰지 않고, 성능 카운터 그래프는 글자색을 따릅니다. Windows 투명 효과가 꺼져 있으면 흐린 배경을 쓰지 않고, 자동 조정은 불투명하게 칠합니다.",
             AutoSize = true,
             MaximumSize = new Size(540, 0),
             ForeColor = SystemColors.GrayText,
@@ -685,6 +690,16 @@ internal sealed class SettingsForm : Form
     }
 
     private void UpdateOpacitySummary() => _bandOpacityValue.Text = $"{_bandOpacity.Value * 5}%";
+
+    // The automatic look picks the band colour and opacity itself; the user's choices are kept for when it is off.
+    private void UpdateBandTintState()
+    {
+        var own = !_adaptiveAppearance.Checked;
+        _bandColour.Enabled = own;
+        _bandOpacity.Enabled = own;
+        _bandOpacityValue.Enabled = own;
+        UpdateGraphColourState();
+    }
 
     private void UpdateAlertFontSummary() => _alertFontSizeValue.Text = $"{_alertFontSize.Value * 5}%";
 
@@ -1159,7 +1174,10 @@ internal sealed class SettingsForm : Form
 
     private void UpdateGraphColourState()
     {
-        var own = !_graphFollowsText.Checked;
+        // The automatic look picks the text colour, so a fixed graph colour could vanish against the band it picked.
+        var automatic = _adaptiveAppearance.Checked;
+        var own = !automatic && !_graphFollowsText.Checked;
+        _graphFollowsText.Enabled = !automatic;
         _graphColour.Enabled = own;
         _graphSwatch.BackColor = own
             ? _selectedGraphColour

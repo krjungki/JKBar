@@ -101,7 +101,6 @@ internal sealed class AppBarReservation : Form
     internal void SetStyle(BandStyle style)
     {
         _style = style;
-        _appearance.SetStyle(style);
 
         if (_registered)
         {
@@ -256,7 +255,9 @@ internal sealed class AppBarReservation : Form
 
         bool cramped;
         var look = _appearance.Look;
-        var style = look is null ? _style : _style with { OpacityPercent = look.OpacityPercent };
+        var style = look is null
+            ? _style
+            : _style with { Colour = look.Tint ?? _style.Colour, OpacityPercent = look.OpacityPercent, GraphColour = null };
         var typography = look is null
             ? _typography
             : _typography with { TextColourArgb = look.Text.ToArgb(), TextShadow = _typography.TextShadow || look.Shadow };

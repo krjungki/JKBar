@@ -123,6 +123,52 @@ public class AdaptiveAppearanceTests
     }
 
     [Fact]
+    public void AutomaticLookPicksALightFrostOverLightWallpaperAndADarkOneOverDark()
+    {
+        var bright = AdaptiveAppearance.ResolveAutomatic(Analysis(Color.FromArgb(235, 235, 230), complexity: 0), false, null);
+        var dark = AdaptiveAppearance.ResolveAutomatic(Analysis(Color.FromArgb(20, 30, 50), complexity: 0), false, null);
+
+        Assert.Equal(AdaptiveAppearance.LightTint, bright.Tint);
+        Assert.Equal(AdaptiveAppearance.DarkText, bright.Text);
+        Assert.Equal(AdaptiveAppearance.DarkTint, dark.Tint);
+        Assert.Equal(AdaptiveAppearance.LightText, dark.Text);
+    }
+
+    [Fact]
+    public void AutomaticOpacityIgnoresTheUsersSettingAndFollowsTheWallpaper()
+    {
+        var calm = Analysis(Color.Gray, complexity: 0);
+        var busy = Analysis(Color.Gray, complexity: 1);
+
+        Assert.Equal(AdaptiveAppearance.AutomaticCalmOpacityPercent, AdaptiveAppearance.ResolveAutomatic(calm, false, null).OpacityPercent);
+        Assert.Equal(AdaptiveAppearance.AutomaticBusiestOpacityPercent, AdaptiveAppearance.ResolveAutomatic(busy, false, null).OpacityPercent);
+        Assert.Equal(100, AdaptiveAppearance.ResolveAutomatic(calm, opaque: true, null).OpacityPercent);
+    }
+
+    [Fact]
+    public void AutomaticTintKeepsItsSideOnABorderlineWallpaper()
+    {
+        var borderline = Analysis(Color.FromArgb(118, 118, 118), complexity: 0);
+        var fromLight = AdaptiveAppearance.ResolveAutomatic(borderline, false, Showing(AdaptiveAppearance.DarkText) with { Tint = AdaptiveAppearance.LightTint });
+        var fromDark = AdaptiveAppearance.ResolveAutomatic(borderline, false, Showing(AdaptiveAppearance.LightText) with { Tint = AdaptiveAppearance.DarkTint });
+
+        Assert.Equal(AdaptiveAppearance.LightTint, fromLight.Tint);
+        Assert.Equal(AdaptiveAppearance.DarkTint, fromDark.Tint);
+    }
+
+    [Fact]
+    public void TransitionEasesTheTint()
+    {
+        var start = new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
+        var transition = new AppearanceTransition();
+        transition.Retarget(new AdaptiveLook(20, AdaptiveAppearance.DarkText, false) { Tint = AdaptiveAppearance.LightTint }, start);
+        transition.Retarget(new AdaptiveLook(20, AdaptiveAppearance.LightText, false) { Tint = AdaptiveAppearance.DarkTint }, start);
+
+        var middle = transition.Current(start + AppearanceTransition.Duration / 2)!;
+        Assert.InRange(middle.Tint!.Value.R, 100, 160);
+    }
+
+    [Fact]
     public void LowWorstCaseContrastTurnsOnTheShadow()
     {
         var even = Analysis(Color.White, complexity: 0);
