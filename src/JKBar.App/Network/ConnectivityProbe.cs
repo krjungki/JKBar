@@ -1,5 +1,4 @@
-// Asks the two endpoints Chrome and Windows already use for their own connectivity checks.
-using System.Net;
+// Asks each configured endpoint whether it answers, all at once.
 using System.Net.Http.Headers;
 using JKBar.Core;
 using JKBar.Core.Network;
@@ -8,10 +7,7 @@ namespace JKBar.App.Network;
 
 internal sealed class ConnectivityProbe : IDisposable
 {
-    private static readonly Uri Google = new("https://www.google.com/generate_204");
-    private static readonly Uri Microsoft = new("http://www.msftconnecttest.com/connecttest.txt");
-
-    private readonly HttpClient _client = new()
+    private readonly HttpClient _client = new(new HttpClientHandler { AllowAutoRedirect = false })
     {
         Timeout = TimeSpan.FromSeconds(5),
         MaxResponseContentBufferSize = 4096
@@ -23,23 +19,22 @@ internal sealed class ConnectivityProbe : IDisposable
         _client.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true };
     }
 
-    internal async Task<ConnectivityState> CheckAsync(CancellationToken cancellationToken)
+    internal async Task<ConnectivityReport> CheckAsync(IReadOnlyList<Uri> probes, CancellationToken cancellationToken)
     {
-        var google = ReachableAsync(Google, HttpStatusCode.NoContent, cancellationToken);
-        var microsoft = ReachableAsync(Microsoft, HttpStatusCode.OK, cancellationToken);
-        var results = await Task.WhenAll(google, microsoft);
+        var results = await Task.WhenAll(probes.Select(async probe =>
+            new ProbeResult(probe.Host, await ReachableAsync(probe, cancellationToken))));
 
-        return ConnectivityVerdict.From(results[0], results[1]);
+        return ConnectivityVerdict.From(results);
     }
 
     public void Dispose() => _client.Dispose();
 
-    private async Task<bool> ReachableAsync(Uri probe, HttpStatusCode expected, CancellationToken cancellationToken)
+    private async Task<bool> ReachableAsync(Uri probe, CancellationToken cancellationToken)
     {
         try
         {
             using var response = await _client.GetAsync(probe, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            return response.StatusCode == expected;
+            return ConnectivityVerdict.IsSuccess(probe, (int)response.StatusCode);
         }
         catch (HttpRequestException)
         {

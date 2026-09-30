@@ -317,6 +317,62 @@ public sealed record NewsSettings
     }
 }
 
+/// <summary>Where and how often the internet connection is checked.</summary>
+public sealed record ConnectivitySettings
+{
+    public const int MaximumProbes = 5;
+    public const int MinimumIntervalSeconds = 10;
+    public const int MaximumIntervalSeconds = 60;
+    public const int DefaultIntervalSeconds = 30;
+
+    /// <summary>The endpoints Chrome and Windows use for their own connectivity checks.</summary>
+    public static readonly string[] DefaultProbeUrls =
+    [
+        "https://www.google.com/generate_204",
+        "http://www.msftconnecttest.com/connecttest.txt"
+    ];
+
+    public string[] ProbeUrls { get; init; } = [.. DefaultProbeUrls];
+    public int IntervalSeconds { get; init; } = DefaultIntervalSeconds;
+
+    /// <summary>Invalid and repeated addresses are dropped; with nothing left the defaults apply.</summary>
+    public ConnectivitySettings Normalized()
+    {
+        var urls = (ProbeUrls ?? [])
+            .Where(url => TryGetProbeUri(url, out _))
+            .Select(url => url.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumProbes)
+            .ToArray();
+
+        return this with
+        {
+            ProbeUrls = urls.Length > 0 ? urls : [.. DefaultProbeUrls],
+            IntervalSeconds = Math.Clamp(IntervalSeconds, MinimumIntervalSeconds, MaximumIntervalSeconds)
+        };
+    }
+
+    public IReadOnlyList<Uri> ProbeUris() =>
+        [.. Normalized().ProbeUrls.Select(url => TryGetProbeUri(url, out var uri) ? uri : null).OfType<Uri>()];
+
+    public bool Matches(ConnectivitySettings other) =>
+        IntervalSeconds == other.IntervalSeconds
+        && (ProbeUrls ?? []).SequenceEqual(other.ProbeUrls ?? [], StringComparer.Ordinal);
+
+    public static bool TryGetProbeUri(string? text, out Uri uri)
+    {
+        if (Uri.TryCreate(text?.Trim(), UriKind.Absolute, out var candidate)
+            && (candidate.Scheme == Uri.UriSchemeHttp || candidate.Scheme == Uri.UriSchemeHttps))
+        {
+            uri = candidate;
+            return true;
+        }
+
+        uri = null!;
+        return false;
+    }
+}
+
 /// <summary>
 /// Where the article panel was last left, in real screen pixels. Zero width means it has never been placed, so
 /// the panel falls back to hanging from the headline it was opened from.
@@ -357,6 +413,7 @@ public sealed record JkBarSettings
     public StockWatchSettings Stocks { get; init; } = new();
     public UpdateSettings Update { get; init; } = new();
     public ArticleWindowSettings ArticleWindow { get; init; } = new();
+    public ConnectivitySettings Connectivity { get; init; } = new();
 
     public JkBarSettings Normalized() => this with
     {
@@ -371,6 +428,7 @@ public sealed record JkBarSettings
         ProcessWatch = ProcessWatch?.Normalized() ?? new ProcessWatchSettings(),
         Stocks = Stocks?.Normalized() ?? new StockWatchSettings(),
         Update = Update?.Normalized() ?? new UpdateSettings(),
-        ArticleWindow = ArticleWindow?.Normalized() ?? new ArticleWindowSettings()
+        ArticleWindow = ArticleWindow?.Normalized() ?? new ArticleWindowSettings(),
+        Connectivity = Connectivity?.Normalized() ?? new ConnectivitySettings()
     };
 }

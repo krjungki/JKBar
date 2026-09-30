@@ -50,10 +50,12 @@ internal sealed class NotchForm : Form
     private readonly AudioWatcher _audioWatcher = new();
     private readonly System.Windows.Forms.Timer _media = new() { Interval = 2000 };
     private readonly MediaWatcher _mediaWatcher = new();
-    // The first check runs soon after start; the interval then follows the verdict.
+    // The first check runs soon after start; the interval then follows the connectivity settings.
     private readonly System.Windows.Forms.Timer _network = new() { Interval = 3000 };
     private readonly ConnectivityProbe _connectivityProbe = new();
     private readonly ConnectivityWatcher _connectivity = new();
+    private ConnectivitySettings _connectivitySettings = new();
+    private IReadOnlyList<Uri> _connectivityProbes = new ConnectivitySettings().ProbeUris();
     private readonly System.Windows.Forms.Timer _syncStatus = new() { Interval = 5000 };
     private readonly SyncStatusPoller _syncPoller = new();
     private readonly SyncStatusWatcher _syncWatcher = new();
@@ -208,6 +210,18 @@ internal sealed class NotchForm : Form
         _behaviour = settings.Normalized();
         _content.Interval = _behaviour.MetricsRefreshSeconds * 1000;
         UpdateFullscreenSuppression();
+    }
+
+    internal void SetConnectivity(ConnectivitySettings settings)
+    {
+        _connectivitySettings = settings.Normalized();
+        _connectivityProbes = _connectivitySettings.ProbeUris();
+
+        // Before the first reading the short start-up delay is kept.
+        if (_connectivity.State != ConnectivityState.Unknown)
+        {
+            _network.Interval = _connectivitySettings.IntervalSeconds * 1000;
+        }
     }
 
     /// <summary>
@@ -788,15 +802,14 @@ internal sealed class NotchForm : Form
         _connectivityChecking = true;
         try
         {
-            var state = await _connectivityProbe.CheckAsync(_shutdown.Token);
+            var report = await _connectivityProbe.CheckAsync(_connectivityProbes, _shutdown.Token);
             if (IsDisposed)
             {
                 return;
             }
 
-            // A broken link is re-checked often so recovery shows up quickly.
-            _network.Interval = state == ConnectivityState.Online ? 30000 : 5000;
-            if (_connectivity.Observe(state) is { } alert)
+            _network.Interval = _connectivitySettings.IntervalSeconds * 1000;
+            if (_connectivity.Observe(report) is { } alert)
             {
                 Notify(alert);
             }

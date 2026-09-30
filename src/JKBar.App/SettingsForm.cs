@@ -140,6 +140,15 @@ internal sealed class SettingsForm : Form
 
     private readonly NumericUpDown _stockRefresh = new() { Minimum = 10, Maximum = 600, Increment = 10, Width = 90 };
     private readonly NumericUpDown _stockRotation = new() { Minimum = 3, Maximum = 60, Width = 90 };
+    private readonly TextBox[] _probeUrls =
+        [.. Enumerable.Range(0, ConnectivitySettings.MaximumProbes).Select(_ => new TextBox { Dock = DockStyle.Fill })];
+    private readonly NumericUpDown _connectivityInterval = new()
+    {
+        Minimum = ConnectivitySettings.MinimumIntervalSeconds,
+        Maximum = ConnectivitySettings.MaximumIntervalSeconds,
+        Increment = 5,
+        Width = 90
+    };
     private readonly NaverStockClient _stockClient = new();
     private readonly Action _previewAlert;
     private readonly Func<string> _measurements;
@@ -331,6 +340,9 @@ internal sealed class SettingsForm : Form
             AddStockRow(stock);
         }
 
+        ShowProbeUrls(normalized.Connectivity.ProbeUrls);
+        _connectivityInterval.Value = normalized.Connectivity.IntervalSeconds;
+
         _bandColour.Click += (_, _) => ChooseBandColour();
         _graphColour.Click += (_, _) => ChooseGraphColour();
         Controls.Add(BuildRoot());
@@ -366,6 +378,12 @@ internal sealed class SettingsForm : Form
 
         // Previewing on every keystroke would refetch the feed, so the address waits until focus leaves.
         _feedUrl.Validated += (_, _) => RaisePreview();
+        foreach (var box in _probeUrls)
+        {
+            box.Validated += (_, _) => RaisePreview();
+        }
+
+        _connectivityInterval.ValueChanged += (_, _) => RaisePreview();
 
         // ItemCheck runs before the box records the new state, so the preview waits for the pending update.
         _items.ItemCheck += (_, e) =>
@@ -451,6 +469,11 @@ internal sealed class SettingsForm : Form
             FeedUrl = _feedUrl.Text.Trim(),
             RefreshMinutes = (int)_refreshMinutes.Value,
             RotationSeconds = (int)_rotationSeconds.Value
+        },
+        Connectivity = new ConnectivitySettings
+        {
+            ProbeUrls = [.. _probeUrls.Select(box => box.Text.Trim()).Where(text => text.Length > 0)],
+            IntervalSeconds = (int)_connectivityInterval.Value
         }
     };
 
@@ -646,6 +669,7 @@ internal sealed class SettingsForm : Form
         tabs.Margin = new Padding(10);
         tabs.TabPages.Add(Page("Bar 모양", appearance));
         tabs.TabPages.Add(Page("표시항목", items));
+        tabs.TabPages.Add(Page("인터넷 점검", BuildConnectivityTab()));
         var frame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = Color.FromArgb(238, 241, 247) };
         frame.Controls.Add(tabs);
         return frame;
@@ -657,6 +681,42 @@ internal sealed class SettingsForm : Form
         AutoSize = true,
         Anchor = AnchorStyles.None
     };
+
+    private Control BuildConnectivityTab()
+    {
+        var layout = FormGrid();
+        for (var index = 0; index < _probeUrls.Length; index++)
+        {
+            AddRow(layout, $"점검 주소 {index + 1}", _probeUrls[index]);
+        }
+
+        var defaults = new Button { Text = "기본 주소", AutoSize = true };
+        defaults.Click += (_, _) =>
+        {
+            ShowProbeUrls(ConnectivitySettings.DefaultProbeUrls);
+            RaisePreview();
+        };
+        AddRow(layout, string.Empty, defaults);
+        AddRow(layout, "점검 주기(초)", _connectivityInterval);
+        AddRow(layout, string.Empty, new Label
+        {
+            Text = "적은 주소에 동시에 접속해 봅니다. 주소마다 5초 안에 리디렉션 없이 2xx로 응답하면 정상으로 봅니다(generate_204 주소는 204만). 모두 응답하면 '네트워크 연결됨 / 모든 사이트 접속 가능', 일부만 응답하면 '네트워크 연결됨 / 일부 사이트 접속 가능'과 접속되지 않는 사이트를, 모두 실패하면 '네트워크 연결 끊김'을 노치에 한 번 알립니다. 상태가 다시 바뀌면 그때 한 번 더 알립니다. 모두 비우면 기본 두 주소를 씁니다.",
+            AutoSize = true,
+            MaximumSize = new Size(480, 0),
+            ForeColor = SystemColors.GrayText,
+            Margin = new Padding(3, 6, 3, 6)
+        });
+        AddFiller(layout);
+        return layout;
+    }
+
+    private void ShowProbeUrls(IReadOnlyList<string> urls)
+    {
+        for (var index = 0; index < _probeUrls.Length; index++)
+        {
+            _probeUrls[index].Text = index < urls.Count ? urls[index] : string.Empty;
+        }
+    }
 
     private Control BuildSyncAlertOptions()
     {
@@ -1349,20 +1409,38 @@ internal sealed class SettingsForm : Form
 
     private void ValidateBeforeClose(object? sender, FormClosingEventArgs e)
     {
-        if (DialogResult != DialogResult.OK || Settings.News.TryGetFeedUri(out _))
+        if (DialogResult != DialogResult.OK)
         {
             return;
         }
 
-        e.Cancel = true;
-        MessageBox.Show(
-            this,
-            "피드 주소는 http:// 또는 https://로 시작하는 올바른 주소여야 합니다.",
-            "JKBar",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Warning);
-        _feedUrl.Focus();
-        _feedUrl.SelectAll();
+        if (!Settings.News.TryGetFeedUri(out _))
+        {
+            e.Cancel = true;
+            MessageBox.Show(
+                this,
+                "피드 주소는 http:// 또는 https://로 시작하는 올바른 주소여야 합니다.",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            _feedUrl.Focus();
+            _feedUrl.SelectAll();
+            return;
+        }
+
+        if (_probeUrls.FirstOrDefault(box =>
+                box.Text.Trim().Length > 0 && !ConnectivitySettings.TryGetProbeUri(box.Text, out _)) is { } invalid)
+        {
+            e.Cancel = true;
+            MessageBox.Show(
+                this,
+                "인터넷 점검 주소는 http:// 또는 https://로 시작하는 올바른 주소여야 합니다.",
+                "JKBar",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            invalid.Focus();
+            invalid.SelectAll();
+        }
     }
 
     private static Font CreateFont(BandTypographySettings typography)

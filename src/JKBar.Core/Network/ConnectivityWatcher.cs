@@ -5,44 +5,46 @@ namespace JKBar.Core.Network;
 
 public sealed class ConnectivityWatcher
 {
-    private ConnectivityState _last = ConnectivityState.Unknown;
+    private ConnectivityReport _last = ConnectivityReport.Unknown;
 
-    public ConnectivityState State => _last;
+    public ConnectivityState State => _last.State;
 
-    public NotchAlert? Observe(ConnectivityState state)
+    public NotchAlert? Observe(ConnectivityReport report)
     {
-        if (state == ConnectivityState.Unknown)
+        if (report.State == ConnectivityState.Unknown)
         {
             return null;
         }
 
         var previous = _last;
-        _last = state;
+        _last = report;
 
         // The first reading is the baseline: only a bad one is worth interrupting for.
-        if (previous == state || (previous == ConnectivityState.Unknown && state == ConnectivityState.Online))
+        if (previous.Signature == report.Signature
+            || (previous.State == ConnectivityState.Unknown && report.State == ConnectivityState.Online))
         {
             return null;
         }
 
-        return state switch
+        return report.State switch
         {
             ConnectivityState.Offline => new NotchAlert(
                 AlertCategory.Network,
                 "network.offline",
-                ConnectivityVerdict.Describe(state),
+                ConnectivityVerdict.Describe(report.State),
                 Severity: AlertSeverity.Warning),
             ConnectivityState.Partial => new NotchAlert(
                 AlertCategory.Network,
-                "network.partial",
-                ConnectivityVerdict.Describe(state),
-                "한 곳만 응답합니다",
-                AlertSeverity.Warning),
+                $"network.partial:{string.Join(',', report.Unreachable)}",
+                ConnectivityVerdict.Describe(report.State),
+                ConnectivityVerdict.DescribeUnreachable(report.Unreachable),
+                AlertSeverity.Done),
             _ => new NotchAlert(
                 AlertCategory.Network,
                 "network.online",
-                ConnectivityVerdict.Describe(state),
-                Severity: AlertSeverity.Done)
+                ConnectivityVerdict.Describe(report.State),
+                ConnectivityVerdict.AllReachable,
+                AlertSeverity.Done)
         };
     }
 }

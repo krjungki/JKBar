@@ -370,6 +370,11 @@ internal sealed class JkBarContext : ApplicationContext
             _bar.SetBehaviour(normalized.Behaviour);
         }
 
+        if (previous is null || !previous.Connectivity.Matches(normalized.Connectivity))
+        {
+            _bar.SetConnectivity(normalized.Connectivity);
+        }
+
         if (previous is null || !ProcessWatchMatches(previous.ProcessWatch, normalized.ProcessWatch))
         {
             _bar.SetProcessWatch(normalized.ProcessWatch);
