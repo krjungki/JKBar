@@ -28,6 +28,7 @@ internal sealed class AppBarReservation : Form
     private Rectangle _imageBounds;
     private Rectangle _newsBounds;
     private IReadOnlyList<ProcessIcon> _processIcons = [];
+    private IReadOnlyList<StatusIconArea> _statusIcons = [];
     private Image? _image;
     private int _imageScalePercent = 100;
     private string? _activeApp;
@@ -44,6 +45,9 @@ internal sealed class AppBarReservation : Form
     internal Action<Rectangle>? ImageClicked;
     internal Action<Rectangle>? NewsClicked;
     internal Action<WatchedProcess>? ProcessClicked;
+
+    /// <summary>The pointer is over a sync provider's icon (screen bounds); true when it was clicked.</summary>
+    internal Action<BandItemKind, Rectangle, bool>? StatusIconPointed;
 
     /// <summary>Raised once when the slot turns out to be too narrow for a headline.</summary>
     internal Action? NewsRoomExhausted;
@@ -284,6 +288,7 @@ internal sealed class AppBarReservation : Form
             _imageBounds = areas.Image;
             _newsBounds = areas.News;
             _processIcons = areas.ProcessIcons;
+            _statusIcons = areas.StatusIcons;
             cramped = areas.NewsCramped;
         }
 
@@ -319,10 +324,7 @@ internal sealed class AppBarReservation : Form
         {
             var screenPoint = new Point((short)(m.LParam.ToInt64() & 0xffff), (short)(m.LParam.ToInt64() >> 16));
             var client = PointToClient(screenPoint);
-            var clickable = _imageBounds.Contains(client)
-                || _newsBounds.Contains(client)
-                || ProcessIconHitTest.At(_processIcons, client) is not null;
-            m.Result = clickable ? htClient : htTransparent;
+            m.Result = IsInteractive(client) ? htClient : htTransparent;
             return;
         }
 
@@ -339,13 +341,21 @@ internal sealed class AppBarReservation : Form
         base.WndProc(ref m);
     }
 
+    private bool IsInteractive(Point client) =>
+        _imageBounds.Contains(client)
+        || _newsBounds.Contains(client)
+        || ProcessIconHitTest.At(_processIcons, client) is not null
+        || StatusIconArea.At(_statusIcons, client) is not null;
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var clickable = _imageBounds.Contains(e.Location)
-            || _newsBounds.Contains(e.Location)
-            || ProcessIconHitTest.At(_processIcons, e.Location) is not null;
-        Cursor = clickable ? Cursors.Hand : Cursors.Default;
+        Cursor = IsInteractive(e.Location) ? Cursors.Hand : Cursors.Default;
+
+        if (StatusIconArea.At(_statusIcons, e.Location) is { } status)
+        {
+            StatusIconPointed?.Invoke(status.Kind, RectangleToScreen(status.Bounds), false);
+        }
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
@@ -366,6 +376,12 @@ internal sealed class AppBarReservation : Form
         if (ProcessIconHitTest.At(_processIcons, e.Location) is { } process)
         {
             ProcessClicked?.Invoke(process);
+            return;
+        }
+
+        if (StatusIconArea.At(_statusIcons, e.Location) is { } status)
+        {
+            StatusIconPointed?.Invoke(status.Kind, RectangleToScreen(status.Bounds), true);
             return;
         }
 

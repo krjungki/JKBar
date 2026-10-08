@@ -151,6 +151,7 @@ internal static class BandRenderer
         DrawActiveApp(g, slots.Left, activeApp, valueFont, palette, padding, contentLeft, nameLimit);
         DrawQuote(g, quoteBox, quote, valueFont, palette.For(quoteBox), padding);
         var newsBounds = DrawNews(g, newsBox, news, valueFont, newsTimeFont, palette, padding);
+        var statusIcons = new List<StatusIconArea>();
         var itemsLeft = DrawItems(
             g,
             slots.Right,
@@ -160,10 +161,11 @@ internal static class BandRenderer
             rateFont,
             palette,
             padding,
-            spacing ?? BandSpacing.Standard);
+            spacing ?? BandSpacing.Standard,
+            statusIcons);
         var processIcons = DrawProcessIcons(g, slots.Right, runningProcesses, itemsLeft, padding, palette);
 
-        return new BandHitAreas(imageBounds, newsBounds, processIcons, news is not null && newsCramped);
+        return new BandHitAreas(imageBounds, newsBounds, processIcons, statusIcons, news is not null && newsCramped);
     }
 
     /// <summary>
@@ -450,6 +452,7 @@ internal static class BandRenderer
         return format;
     }
 
+    /// <param name="statusIcons">Receives where each sync provider's icon landed.</param>
     /// <returns>The left edge the readouts ended up occupying, which is where anything before them has to stop.</returns>
     private static int DrawItems(
         Graphics g,
@@ -460,7 +463,8 @@ internal static class BandRenderer
         Font rateFont,
         InkPalette palette,
         int padding,
-        BandSpacing spacing)
+        BandSpacing spacing,
+        List<StatusIconArea> statusIcons)
     {
         if (slot.Width <= 0 || items.Count == 0)
         {
@@ -499,6 +503,11 @@ internal static class BandRenderer
                 format,
                 palette.For(bounds),
                 inner);
+
+            if (item.Layout == BandItemLayout.StatusIcon && IsServiceIcon(item.Kind))
+            {
+                statusIcons.Add(new StatusIconArea(item.Kind, Rectangle.Round(bounds)));
+            }
 
             var nextKind = i > 0 ? items[i - 1].Kind : BandItemKind.Custom;
             var itemGap = (int)Math.Round(gap * GroupSpacing(item.Kind, nextKind, spacing) / 100d);

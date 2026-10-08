@@ -1,8 +1,14 @@
-// Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). Keep behaviour changes in sync with the original.
+// Ported from JKMon (packages/JKMon/src/JKMon.Core/Sync). JKBar alone has the Korean descriptions and stalled peers.
 namespace JKBar.Core.Sync;
 
-/// <summary>Completion counters, as carried by a FolderCompletion event and summed per peer.</summary>
-public readonly record struct SyncthingCompletion(double Completion, long NeedBytes, long NeedItems, long NeedDeletes);
+/// <summary>Completion counters, as carried by a FolderCompletion event.</summary>
+public readonly record struct SyncthingCompletion(double Completion, long NeedBytes, long NeedItems, long NeedDeletes)
+{
+    public long Outstanding => NeedItems + NeedDeletes;
+}
+
+/// <summary>What one connected peer still lacks in one folder, with names ready for display.</summary>
+public readonly record struct SyncthingPeerNeed(string Device, string Folder, SyncthingCompletion Completion);
 
 /// <summary>Per-folder status, from GET /rest/db/status or the summary carried by a FolderSummary event.</summary>
 public readonly record struct SyncthingFolderStatus(
@@ -19,6 +25,10 @@ public readonly record struct SyncthingFolderStatus(
 
 public static class SyncthingStatusMapper
 {
+    public const string AllUpToDate = "모든 폴더가 최신 상태입니다";
+    public const string Transferring = "파일을 주고받는 중입니다";
+    public const string CheckPeer = "상대 장치의 Syncthing에서 실패 항목을 확인하세요";
+
     /// <summary>Completion is a float, so outstanding work is judged by the need counters rather than by equality with 100.</summary>
     public static SyncState ToSyncState(SyncthingCompletion completion)
     {
@@ -30,60 +40,49 @@ public static class SyncthingStatusMapper
         return completion.Completion >= 99.9995d ? SyncState.UpToDate : SyncState.Synchronizing;
     }
 
-    public static string Describe(SyncthingCompletion completion, SyncState state) => state switch
+    /// <summary>Fewer outstanding entries, or as many with fewer bytes, is progress.</summary>
+    public static bool Improves(SyncthingCompletion current, SyncthingCompletion best) =>
+        current.Outstanding < best.Outstanding
+        || (current.Outstanding == best.Outstanding && current.NeedBytes < best.NeedBytes);
+
+    /// <summary>What <paramref name="current"/> needs beyond <paramref name="floor"/>, or null when nothing.</summary>
+    public static SyncthingCompletion? Above(SyncthingCompletion current, SyncthingCompletion floor)
     {
-        SyncState.UpToDate => "all folders up to date",
-        SyncState.Synchronizing => $"{completion.Completion:0.##}% complete, {completion.NeedItems} item(s) pending",
-        _ => "state unavailable"
-    };
+        var excess = new SyncthingCompletion(
+            current.Completion,
+            Math.Max(0, current.NeedBytes - floor.NeedBytes),
+            Math.Max(0, current.NeedItems - floor.NeedItems),
+            Math.Max(0, current.NeedDeletes - floor.NeedDeletes));
 
-    /// <summary>
-    /// Local completion only covers what this machine still needs, so a locally edited file looks finished there.
-    /// Outgoing work shows up as the connected peers still needing data from us.
-    /// </summary>
-    public static SyncState Aggregate(SyncthingCompletion local, IReadOnlyList<SyncthingCompletion> remotes)
-    {
-        if (ToSyncState(local) == SyncState.Synchronizing)
-        {
-            return SyncState.Synchronizing;
-        }
-
-        foreach (var remote in remotes)
-        {
-            if (ToSyncState(remote) == SyncState.Synchronizing)
-            {
-                return SyncState.Synchronizing;
-            }
-        }
-
-        return SyncState.UpToDate;
+        return excess.NeedBytes > 0 || excess.Outstanding > 0 ? excess : null;
     }
 
-    public static string Describe(SyncthingCompletion local, IReadOnlyList<SyncthingCompletion> remotes)
+    public static IEnumerable<string> DescribeSending(IReadOnlyList<SyncthingPeerNeed> sending) =>
+        sending
+            .GroupBy(peer => peer.Device, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var items = group.Sum(peer => peer.Completion.NeedItems + peer.Completion.NeedDeletes);
+                return items > 0 ? $"{group.Key}에 {items}건 보내는 중" : $"{group.Key}에 보내는 중";
+            });
+
+    public static IEnumerable<string> DescribeStalled(IReadOnlyList<SyncthingPeerNeed> stalled) =>
+        stalled.Select(peer => $"{peer.Device} · {peer.Folder}: {Outstanding(peer.Completion)} 진척 없음");
+
+    private static string Outstanding(SyncthingCompletion completion)
     {
-        var receiving = ToSyncState(local) == SyncState.Synchronizing;
-        var sendingTo = remotes.Count(remote => ToSyncState(remote) == SyncState.Synchronizing);
-
-        if (!receiving && sendingTo == 0)
-        {
-            return "all folders up to date";
-        }
-
         var parts = new List<string>(2);
-        if (receiving)
+        if (completion.NeedItems > 0)
         {
-            parts.Add($"receiving {local.NeedItems} item(s)");
+            parts.Add($"항목 {completion.NeedItems}건");
         }
 
-        if (sendingTo > 0)
+        if (completion.NeedDeletes > 0)
         {
-            var pending = remotes
-                .Where(remote => ToSyncState(remote) == SyncState.Synchronizing)
-                .Sum(remote => remote.NeedItems);
-            parts.Add($"sending {pending} item(s) to {sendingTo} device(s)");
+            parts.Add($"삭제 {completion.NeedDeletes}건");
         }
 
-        return string.Join(", ", parts);
+        return parts.Count == 0 ? "남은 데이터" : string.Join(", ", parts);
     }
 
     /// <summary>
@@ -122,31 +121,41 @@ public static class SyncthingStatusMapper
     /// <summary>Error outranks in-progress work so the tooltip names the more serious condition.</summary>
     public static SyncState Worse(SyncState first, SyncState second) => Rank(first) >= Rank(second) ? first : second;
 
-    public static string DescribeFolders(IReadOnlyList<SyncthingFolderStatus> folders)
-    {
-        var unfinished = folders.Where(folder => ToSyncState(folder) != SyncState.UpToDate).ToList();
-
-        return unfinished.Count == 0
-            ? "all folders up to date"
-            : string.Join(", ", unfinished.Select(folder => $"{folder.Name} {DescribeFolder(folder)}"));
-    }
+    public static IEnumerable<string> DescribeFolders(IReadOnlyList<SyncthingFolderStatus> folders) =>
+        folders
+            .Where(folder => ToSyncState(folder) != SyncState.UpToDate)
+            .Select(folder => $"{folder.Name}: {DescribeFolder(folder)}");
 
     private static string DescribeFolder(SyncthingFolderStatus folder)
     {
         if (folder.PullErrors > 0)
         {
-            return $"{folder.PullErrors} pull error(s)";
+            return $"받기 오류 {folder.PullErrors}건";
         }
 
         if (!string.IsNullOrEmpty(folder.State) && !Is(folder.State, SyncthingFolderStatus.IdleState))
         {
-            return folder.State;
+            return StateName(folder.State);
         }
 
         return folder.NeedTotalItems > 0
-            ? $"{folder.NeedTotalItems} item(s) out of sync"
-            : $"{folder.ReceiveOnlyChangedFiles} local change(s)";
+            ? $"맞지 않는 항목 {folder.NeedTotalItems}건"
+            : $"로컬 변경 {folder.ReceiveOnlyChangedFiles}건";
     }
+
+    private static string StateName(string state) => state.ToLowerInvariant() switch
+    {
+        "scanning" => "검사 중",
+        "scan-waiting" => "검사 대기",
+        "syncing" => "동기화 중",
+        "sync-preparing" => "동기화 준비",
+        "sync-waiting" => "동기화 대기",
+        "cleaning" => "정리 중",
+        "clean-waiting" => "정리 대기",
+        SyncthingFolderStatus.PausedState => "일시 중지됨",
+        SyncthingFolderStatus.ErrorState => "오류",
+        _ => state
+    };
 
     private static int Rank(SyncState state) => state switch
     {

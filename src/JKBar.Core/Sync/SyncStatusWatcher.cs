@@ -9,7 +9,17 @@ public sealed class SyncStatusWatcher
     /// <summary>Long enough that a provider flipping in and out of sync cannot hold the notch.</summary>
     public static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// How long synchronisation has to last before it is announced. Small files land every minute or so and finish
+    /// within a poll or two; the icon still shows them, the notch does not.
+    /// </summary>
+    public static readonly TimeSpan SynchronizingAfter = TimeSpan.FromSeconds(15);
+
+    private readonly TimeProvider _time;
     private readonly Dictionary<string, BandItemBadge> _last = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _synchronizingSince = new(StringComparer.Ordinal);
+
+    public SyncStatusWatcher(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
     /// <param name="allowsAlert">
     /// Muted results are still tracked, so a separately enabled recovery or attention state can be announced next.
@@ -19,6 +29,7 @@ public sealed class SyncStatusWatcher
         Func<string, BandItemBadge, bool> allowsAlert)
     {
         var alerts = new List<NotchAlert>();
+        var now = _time.GetUtcNow();
 
         foreach (var snapshot in snapshots)
         {
@@ -27,10 +38,31 @@ public sealed class SyncStatusWatcher
             if (!snapshot.IsVisible || kind == BandItemKind.Custom)
             {
                 _last.Remove(snapshot.ProviderId);
+                _synchronizingSince.Remove(snapshot.ProviderId);
                 continue;
             }
 
+            if (badge != BandItemBadge.Synchronizing)
+            {
+                _synchronizingSince.Remove(snapshot.ProviderId);
+            }
+
             var known = _last.TryGetValue(snapshot.ProviderId, out var previous);
+            if (known && previous != badge && badge == BandItemBadge.Synchronizing)
+            {
+                if (!_synchronizingSince.TryGetValue(snapshot.ProviderId, out var since))
+                {
+                    _synchronizingSince[snapshot.ProviderId] = now;
+                    continue;
+                }
+
+                if (now - since < SynchronizingAfter)
+                {
+                    continue;
+                }
+            }
+
+            // _last holds the badge last announced or deliberately passed over, not every reading.
             _last[snapshot.ProviderId] = badge;
 
             // The first reading is the baseline; only a change is worth interrupting for.

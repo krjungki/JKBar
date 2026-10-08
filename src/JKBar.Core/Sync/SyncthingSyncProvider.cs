@@ -24,7 +24,11 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     internal static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(5);
 
-    private static readonly SyncthingCompletion NothingNeeded = new(100, 0, 0, 0);
+    /// <summary>
+    /// A peer whose smallest backlog has not shrunk for this long is stuck on its own side (a delete it cannot
+    /// perform, say), so that floor no longer counts as a transfer in progress.
+    /// </summary>
+    internal static readonly TimeSpan StallAfter = TimeSpan.FromMinutes(3);
 
     private readonly HttpClient _http;
     private readonly Func<SyncthingEndpoint?> _endpointFactory;
@@ -33,7 +37,8 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     private readonly bool _ownsClient;
 
     private readonly Dictionary<string, SyncthingFolderStatus> _folders = new(StringComparer.Ordinal);
-    private readonly Dictionary<(string Device, string Folder), SyncthingCompletion> _remotes = [];
+    private readonly Dictionary<(string Device, string Folder), RemoteProgress> _remotes = [];
+    private readonly Dictionary<string, string> _deviceNames = new(StringComparer.Ordinal);
 
     private HashSet<string>? _connected;
     private DateTimeOffset _reconciledAt;
@@ -86,7 +91,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         {
             await ReconcileAsync(endpoint, now, cancellationToken).ConfigureAwait(false);
 
-            if (await PollEventsAsync(endpoint, cancellationToken).ConfigureAwait(false))
+            if (await PollEventsAsync(endpoint, now, cancellationToken).ConfigureAwait(false))
             {
                 _activity.Mark(now);
             }
@@ -96,23 +101,29 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
             _retryAt = DateTimeOffset.MinValue;
 
             var folderState = SyncthingStatusMapper.AggregateFolders(folders);
-            var remotes = ConnectedRemotes();
-            var counterState = SyncthingStatusMapper.Aggregate(NothingNeeded, remotes);
+            var (sending, stalled) = ConnectedPeers(now);
+            var counterState = sending.Count > 0 ? SyncState.Synchronizing : SyncState.UpToDate;
 
             // A small edit finishes between polls, so recent events are what reveal it.
             var recentlyActive = _activity.IsActive(now);
             var settled = SyncthingStatusMapper.Worse(counterState, folderState);
             var state = settled == SyncState.UpToDate && recentlyActive ? SyncState.Synchronizing : settled;
 
-            var detail = folderState != SyncState.UpToDate
-                ? SyncthingStatusMapper.DescribeFolders(folders)
-                : counterState != SyncState.UpToDate
-                    ? SyncthingStatusMapper.Describe(NothingNeeded, remotes)
-                    : recentlyActive
-                        ? "transferring"
-                        : "all folders up to date";
+            var lines = new List<string>();
+            lines.AddRange(SyncthingStatusMapper.DescribeFolders(folders));
+            lines.AddRange(SyncthingStatusMapper.DescribeSending(sending));
+            if (lines.Count == 0)
+            {
+                lines.Add(recentlyActive ? SyncthingStatusMapper.Transferring : SyncthingStatusMapper.AllUpToDate);
+            }
 
-            return new SyncProviderSnapshot(ProviderId, Initial, state, detail);
+            if (stalled.Count > 0)
+            {
+                lines.AddRange(SyncthingStatusMapper.DescribeStalled(stalled));
+                lines.Add(SyncthingStatusMapper.CheckPeer);
+            }
+
+            return new SyncProviderSnapshot(ProviderId, Initial, state, string.Join('\n', lines));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -130,12 +141,13 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
 
     // The API key must never reach a message surfaced to the user.
     private SyncProviderSnapshot Unreachable() =>
-        new(ProviderId, Initial, SyncState.Unknown, "API unreachable");
+        new(ProviderId, Initial, SyncState.Unknown, "Syncthing API에 연결할 수 없습니다");
 
     private void ResetState()
     {
         _folders.Clear();
         _remotes.Clear();
+        _deviceNames.Clear();
         _connected = null;
         _folderConfigs = null;
         _lastEventId = -1;
@@ -145,25 +157,54 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
 
     /// <summary>
     /// Only connected peers count. A device that is offline may legitimately be behind, and treating that as an
-    /// in-progress sync would leave the indicator red indefinitely.
+    /// in-progress sync would leave the indicator lit indefinitely. A connected peer that has stopped making
+    /// progress is reported separately for the same reason.
     /// </summary>
-    private List<SyncthingCompletion> ConnectedRemotes()
+    private (List<SyncthingPeerNeed> Sending, List<SyncthingPeerNeed> Stalled) ConnectedPeers(DateTimeOffset now)
     {
+        var sending = new List<SyncthingPeerNeed>();
+        var stalled = new List<SyncthingPeerNeed>();
         if (_connected is null)
         {
-            return [];
+            return (sending, stalled);
         }
 
-        return _remotes
-            .Where(pair => _connected.Contains(pair.Key.Device))
-            .GroupBy(pair => pair.Key.Device, StringComparer.Ordinal)
-            .Select(group => new SyncthingCompletion(
-                group.Min(pair => pair.Value.Completion),
-                group.Sum(pair => pair.Value.NeedBytes),
-                group.Sum(pair => pair.Value.NeedItems),
-                group.Sum(pair => pair.Value.NeedDeletes)))
-            .ToList();
+        foreach (var ((device, folder), progress) in _remotes.OrderBy(pair => pair.Key.Device).ThenBy(pair => pair.Key.Folder))
+        {
+            if (!_connected.Contains(device)
+                || SyncthingStatusMapper.ToSyncState(progress.Current) != SyncState.Synchronizing)
+            {
+                continue;
+            }
+
+            var deviceName = DeviceName(device);
+            var folderName = FolderName(folder);
+            if (now - progress.BestAt < StallAfter)
+            {
+                sending.Add(new SyncthingPeerNeed(deviceName, folderName, progress.Current));
+                continue;
+            }
+
+            // The floor that never cleared is stuck; anything above it is fresh work the peer is still taking in.
+            stalled.Add(new SyncthingPeerNeed(deviceName, folderName, progress.Best));
+            if (SyncthingStatusMapper.Above(progress.Current, progress.Best) is { } excess)
+            {
+                sending.Add(new SyncthingPeerNeed(deviceName, folderName, excess));
+            }
+        }
+
+        return (sending, stalled);
     }
+
+    private string DeviceName(string device) =>
+        _deviceNames.TryGetValue(device, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : device.Length > 7 ? device[..7] : device;
+
+    private string FolderName(string folder) =>
+        _folderConfigs?.FirstOrDefault(config => config.Id == folder) is { } config && !string.IsNullOrWhiteSpace(config.Label)
+            ? config.Label
+            : folder;
 
     /// <summary>
     /// Connection changes arrive as events; the list is re-read only at start and every few minutes as a safety net,
@@ -202,7 +243,8 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     /// Syncthing buffers events, so asking for everything since the last seen id catches bursts that started and
     /// finished entirely between two polls. The first call only establishes the starting position.
     /// </summary>
-    private async Task<bool> PollEventsAsync(SyncthingEndpoint endpoint, CancellationToken cancellationToken)
+    private async Task<bool> PollEventsAsync(
+        SyncthingEndpoint endpoint, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var priming = _lastEventId < 0;
         var since = priming ? 0 : _lastEventId;
@@ -238,7 +280,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         var active = false;
         foreach (var item in events)
         {
-            ApplyEvent(item);
+            ApplyEvent(item, now);
             active |= SyncthingEventFilter.IndicatesActivity(item.Type, StateTarget(item));
         }
 
@@ -246,7 +288,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
     }
 
     /// <summary>Folder, peer and connection state are kept current from the event stream, which is cheap.</summary>
-    private void ApplyEvent(EventPayload item)
+    private void ApplyEvent(EventPayload item, DateTimeOffset now)
     {
         if (item.Data.ValueKind != JsonValueKind.Object)
         {
@@ -273,7 +315,15 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
                 return;
 
             case "FolderCompletion":
-                ApplyCompletion(item.Data);
+                ApplyCompletion(item.Data, now);
+                return;
+
+            // Need counters only move once a whole file lands, so a long download reports its progress here instead.
+            case "RemoteDownloadProgress"
+                when StringProperty(item.Data, "device") is { Length: > 0 } device
+                    && StringProperty(item.Data, "folder") is { Length: > 0 } folder
+                    && _remotes.TryGetValue((device, folder), out var progress):
+                _remotes[(device, folder)] = progress with { Best = progress.Current, BestAt = now };
                 return;
         }
 
@@ -285,7 +335,7 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         ApplyFolderEvent(item, folderId);
     }
 
-    private void ApplyCompletion(JsonElement data)
+    private void ApplyCompletion(JsonElement data, DateTimeOffset now)
     {
         var payload = data.Deserialize<FolderCompletionPayload>();
         if (payload is not { Device: { Length: > 0 } device, Folder: { Length: > 0 } folder })
@@ -301,8 +351,14 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
             return;
         }
 
-        _remotes[(device, folder)] = new SyncthingCompletion(
+        var completion = new SyncthingCompletion(
             payload.Completion, payload.NeedBytes, payload.NeedItems, payload.NeedDeletes);
+
+        // Unrelated files keep passing through, so the count wobbles; only a new low means the backlog is shrinking.
+        _remotes[(device, folder)] =
+            _remotes.TryGetValue((device, folder), out var known) && !SyncthingStatusMapper.Improves(completion, known.Best)
+                ? known with { Current = completion }
+                : new RemoteProgress(completion, completion, now);
     }
 
     private static string? StringProperty(JsonElement data, string name) =>
@@ -343,6 +399,17 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         {
             _folderConfigs = await GetAsync<List<FolderConfigPayload>>(endpoint, "/rest/config/folders", cancellationToken)
                 .ConfigureAwait(false) ?? throw new JsonException("empty folder configuration");
+            var devices = await GetAsync<List<DeviceConfigPayload>>(endpoint, "/rest/config/devices", cancellationToken)
+                .ConfigureAwait(false);
+            _deviceNames.Clear();
+            foreach (var device in devices ?? [])
+            {
+                if (device.DeviceId is { Length: > 0 } id && device.Name is { } name)
+                {
+                    _deviceNames[id] = name;
+                }
+            }
+
             _folderConfigsReadAt = now;
             _reloadFolderConfigs = false;
         }
@@ -450,6 +517,18 @@ public sealed class SyncthingSyncProvider : ISyncProvider, IDisposable
         {
             _http.Dispose();
         }
+    }
+
+    /// <param name="Best">The smallest backlog seen since <paramref name="BestAt"/>, the last time it shrank.</param>
+    private readonly record struct RemoteProgress(SyncthingCompletion Current, SyncthingCompletion Best, DateTimeOffset BestAt);
+
+    private sealed record DeviceConfigPayload
+    {
+        [JsonPropertyName("deviceID")]
+        public string? DeviceId { get; init; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
     }
 
     private sealed record FolderCompletionPayload

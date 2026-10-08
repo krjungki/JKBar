@@ -35,6 +35,19 @@ public static class SyncStatusSource
         _ => BandItemBadge.Attention
     };
 
+    public static string StateLabel(SyncState state) => state switch
+    {
+        SyncState.UpToDate => "정상",
+        SyncState.Synchronizing => "동기화 중",
+        SyncState.Error => "주의",
+        SyncState.Absent => "실행 중이 아님",
+        _ => "확인 불가"
+    };
+
+    /// <summary>The provider's own explanation, one line per fact, for the popup behind its icon.</summary>
+    public static IReadOnlyList<string> DetailLines(SyncProviderSnapshot snapshot) =>
+        snapshot.Detail.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     public static IReadOnlyList<BandItem> Items(IEnumerable<SyncProviderSnapshot> snapshots) =>
         [.. snapshots.Select(Item).OfType<BandItem>()];
 

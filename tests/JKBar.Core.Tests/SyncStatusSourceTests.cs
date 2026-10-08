@@ -53,6 +53,22 @@ public class SyncStatusSourceTests
     }
 
     [Theory]
+    [InlineData(SyncState.UpToDate, "정상")]
+    [InlineData(SyncState.Synchronizing, "동기화 중")]
+    [InlineData(SyncState.Error, "주의")]
+    [InlineData(SyncState.Unknown, "확인 불가")]
+    public void LabelsTheBadgeForThePopup(SyncState state, string expected) =>
+        Assert.Equal(expected, SyncStatusSource.StateLabel(state));
+
+    [Fact]
+    public void SplitsTheProviderDetailIntoPopupLines()
+    {
+        var snapshot = new SyncProviderSnapshot(SyncProviderCatalog.Syncthing, 'S', SyncState.UpToDate, "첫 줄\n\n 둘째 줄 \n");
+
+        Assert.Equal(["첫 줄", "둘째 줄"], SyncStatusSource.DetailLines(snapshot));
+    }
+
+    [Theory]
     [InlineData(SyncProviderCatalog.OneDrive, BandItemKind.OneDrive)]
     [InlineData(SyncProviderCatalog.Syncthing, BandItemKind.Syncthing)]
     [InlineData(SyncProviderCatalog.GlobalSecureAccess, BandItemKind.GlobalSecureAccess)]

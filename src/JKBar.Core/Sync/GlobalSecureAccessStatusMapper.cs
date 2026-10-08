@@ -48,18 +48,18 @@ public static class GlobalSecureAccessStatusMapper
 
     public static string Describe(int eventId) => eventId switch
     {
-        Connected => "connected to all channels",
-        Disconnected => "disconnected from all channels",
-        SomeChannelsDisconnected => "some channels disconnected",
-        EmptyPolicy => "forwarding policy is empty",
-        ClientEnabled => "enabled, waiting for a connection result",
-        ClientDisabled => "client disabled",
-        PolicySchemaMismatch => "forwarding policy does not match the schema",
-        PolicyMissing => "forwarding policy is missing",
-        NoNetwork => "device is not connected to the network",
-        Offboarded => "device is offboarded",
-        BreakGlass => "break glass mode",
-        NoInternet => "no internet connectivity",
-        _ => "state unavailable"
+        Connected => "모든 채널에 연결됨",
+        Disconnected => "모든 채널 연결 끊김",
+        SomeChannelsDisconnected => "일부 채널 연결 끊김",
+        EmptyPolicy => "전달 정책이 비어 있음",
+        ClientEnabled => "켜짐, 연결 결과 대기 중",
+        ClientDisabled => "클라이언트 꺼짐",
+        PolicySchemaMismatch => "전달 정책이 스키마와 맞지 않음",
+        PolicyMissing => "전달 정책 없음",
+        NoNetwork => "기기가 네트워크에 연결되지 않음",
+        Offboarded => "기기 등록 해제됨",
+        BreakGlass => "비상 우회(break glass) 모드",
+        NoInternet => "인터넷 연결 없음",
+        _ => "상태를 알 수 없음"
     };
 }

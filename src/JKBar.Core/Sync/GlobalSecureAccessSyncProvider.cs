@@ -48,11 +48,14 @@ public sealed class GlobalSecureAccessSyncProvider : ISyncProvider
         var status = _readStatus();
         if (status is null)
         {
-            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "no status reported yet");
+            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "아직 보고된 상태가 없습니다");
         }
 
         var state = GlobalSecureAccessStatusMapper.ToSyncState(status.Value.EventId);
-        return new SyncProviderSnapshot(ProviderId, Initial, state, status.Value.Description);
+        var detail = status.Value.Written is { } written
+            ? $"{status.Value.Description}\n기록 {written.ToLocalTime():yyyy-MM-dd HH:mm}"
+            : status.Value.Description;
+        return new SyncProviderSnapshot(ProviderId, Initial, state, detail);
     }
 
     private static bool ClientIsRunning()

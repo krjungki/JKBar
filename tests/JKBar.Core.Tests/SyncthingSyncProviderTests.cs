@@ -28,6 +28,7 @@ public class SyncthingSyncProviderTests
         Assert.Equal(1, daemon.Count("/rest/system/connections"));
         Assert.Equal(1, daemon.Count("/rest/db/status"));
         Assert.Equal(1, daemon.Count("/rest/config/folders"));
+        Assert.Equal(1, daemon.Count("/rest/config/devices"));
         Assert.All(daemon.Calls.Where(call => call.StartsWith("/rest/events")),
             call => Assert.Contains("events=", call));
     }
@@ -42,7 +43,7 @@ public class SyncthingSyncProviderTests
         clock.Advance(TimeSpan.FromSeconds(5));
         var syncing = await provider.GetSnapshotAsync(CancellationToken.None);
         Assert.Equal(SyncState.Synchronizing, syncing.State);
-        Assert.Contains("Docs", syncing.Detail);
+        Assert.Equal("Docs: 동기화 중", syncing.Detail);
 
         daemon.Emit("FolderSummary", new { folder = "docs", summary = new { state = "idle", needTotalItems = 0 } });
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -64,7 +65,7 @@ public class SyncthingSyncProviderTests
         clock.Advance(TimeSpan.FromSeconds(5));
         var sending = await provider.GetSnapshotAsync(CancellationToken.None);
         Assert.Equal(SyncState.Synchronizing, sending.State);
-        Assert.Equal("sending 3 item(s) to 1 device(s)", sending.Detail);
+        Assert.Equal("Nas에 3건 보내는 중", sending.Detail);
 
         daemon.Emit("DeviceDisconnected", new { id = Peer });
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -93,6 +94,84 @@ public class SyncthingSyncProviderTests
         daemon.Emit("FolderCompletion", new { device = Peer, folder = "docs", completion = 0.0, needItems = 9, remoteState = "paused" });
         clock.Advance(TimeSpan.FromSeconds(5));
         Assert.Equal(SyncState.UpToDate, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
+    }
+
+    [Fact]
+    public async Task PeerStuckOnTheSameDeletesSettlesAndIsNamedInTheDetail()
+    {
+        var (daemon, clock, provider) = Create();
+        await provider.GetSnapshotAsync(CancellationToken.None);
+
+        var stuck = new { device = Peer, folder = "docs", completion = 95.0, needItems = 0, needDeletes = 23, remoteState = "valid" };
+        daemon.Emit("FolderCompletion", stuck);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(SyncState.Synchronizing, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
+
+        // Unrelated files keep passing through, so the count rises and falls back to the same floor.
+        for (var elapsed = TimeSpan.Zero; elapsed < SyncthingSyncProvider.StallAfter; elapsed += TimeSpan.FromSeconds(50))
+        {
+            daemon.Emit("FolderCompletion", stuck with { completion = 94.0, needItems = 2 });
+            daemon.Emit("FolderCompletion", stuck with { completion = 94.0 });
+            clock.Advance(TimeSpan.FromSeconds(50));
+            await provider.GetSnapshotAsync(CancellationToken.None);
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var settled = await provider.GetSnapshotAsync(CancellationToken.None);
+        Assert.Equal(SyncState.UpToDate, settled.State);
+        Assert.Equal(
+            [SyncthingStatusMapper.AllUpToDate, "Nas · Docs: 삭제 23건 진척 없음", SyncthingStatusMapper.CheckPeer],
+            settled.Detail.Split('\n'));
+
+        daemon.Emit("FolderCompletion", stuck with { needItems = 2 });
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var fresh = await provider.GetSnapshotAsync(CancellationToken.None);
+        Assert.Equal(SyncState.Synchronizing, fresh.State);
+        Assert.Equal("Nas에 2건 보내는 중", fresh.Detail.Split('\n')[0]);
+
+        daemon.Emit("FolderCompletion", stuck with { needDeletes = 2 });
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var shrinking = await provider.GetSnapshotAsync(CancellationToken.None);
+        Assert.Equal(SyncState.Synchronizing, shrinking.State);
+        Assert.Equal("Nas에 2건 보내는 중", shrinking.Detail);
+    }
+
+    [Fact]
+    public async Task PeerDownloadingALargeFileIsNotStalled()
+    {
+        var (daemon, clock, provider) = Create();
+        await provider.GetSnapshotAsync(CancellationToken.None);
+
+        daemon.Emit("FolderCompletion", new { device = Peer, folder = "docs", completion = 10.0, needItems = 1, needBytes = 4_000_000_000L });
+        for (var elapsed = TimeSpan.Zero; elapsed <= SyncthingSyncProvider.StallAfter; elapsed += TimeSpan.FromSeconds(40))
+        {
+            daemon.Emit("RemoteDownloadProgress", new { device = Peer, folder = "docs", state = new { big = 12 } });
+            clock.Advance(TimeSpan.FromSeconds(30));
+            await provider.GetSnapshotAsync(CancellationToken.None);
+
+            // Past the activity hold, so only the peer's own progress keeps it in sync.
+            clock.Advance(TimeSpan.FromSeconds(10));
+            Assert.Equal(SyncState.Synchronizing, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
+        }
+    }
+
+    [Fact]
+    public async Task ReconnectedPeerStartsItsStallClockAgain()
+    {
+        var (daemon, clock, provider) = Create();
+        await provider.GetSnapshotAsync(CancellationToken.None);
+
+        daemon.Emit("FolderCompletion", new { device = Peer, folder = "docs", completion = 95.0, needDeletes = 3 });
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(SyncState.Synchronizing, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
+        clock.Advance(SyncthingSyncProvider.StallAfter);
+        Assert.Equal(SyncState.UpToDate, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
+
+        daemon.Emit("DeviceDisconnected", new { id = Peer });
+        daemon.Emit("DeviceConnected", new { id = Peer });
+        daemon.Emit("FolderCompletion", new { device = Peer, folder = "docs", completion = 95.0, needDeletes = 3 });
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal(SyncState.Synchronizing, (await provider.GetSnapshotAsync(CancellationToken.None)).State);
     }
 
     [Fact]
@@ -196,7 +275,7 @@ public class SyncthingSyncProviderTests
         var snapshot = await provider.GetSnapshotAsync(CancellationToken.None);
 
         Assert.Equal(SyncState.Synchronizing, snapshot.State);
-        Assert.Contains("paused", snapshot.Detail);
+        Assert.Equal("Docs: 일시 중지됨", snapshot.Detail);
     }
 
     [Fact]
@@ -291,6 +370,7 @@ public class SyncthingSyncProviderTests
                 "/rest/config/folders" => FolderRemoved
                     ? Array.Empty<object>()
                     : new[] { new { id = "docs", label = "Docs", paused = PausedFolder } },
+                "/rest/config/devices" => new[] { new { deviceID = Peer, name = "Nas" } },
                 "/rest/db/status" => new { state = "idle", needTotalItems = 0 },
                 "/rest/events" => Events(HttpUtility.ParseQueryString(uri.Query)),
                 _ => throw new InvalidOperationException($"unexpected endpoint {uri.AbsolutePath}")

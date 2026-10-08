@@ -59,6 +59,7 @@ internal sealed class NotchForm : Form
     private readonly System.Windows.Forms.Timer _syncStatus = new() { Interval = 5000 };
     private readonly SyncStatusPoller _syncPoller = new();
     private readonly SyncStatusWatcher _syncWatcher = new();
+    private readonly SyncStatusPopup _syncPopup;
     private readonly System.Windows.Forms.Timer _newsRefresh = new();
     private readonly System.Windows.Forms.Timer _newsRotation = new();
     private readonly NewsFeedClient _newsClient = new();
@@ -157,6 +158,11 @@ internal sealed class NotchForm : Form
         _reservation.ImageClicked += anchor => ImageClicked?.Invoke(anchor);
         _reservation.NewsClicked += anchor => NewsClicked?.Invoke(anchor);
         _reservation.ProcessClicked += process => ProcessClicked?.Invoke(process);
+        _syncPopup = new SyncStatusPopup(providerId =>
+            _syncPoller.Snapshots.Where(snapshot => snapshot.ProviderId == providerId)
+                .Select(snapshot => (SyncProviderSnapshot?)snapshot)
+                .FirstOrDefault());
+        _reservation.StatusIconPointed += _syncPopup.PointAt;
         _reservation.NewsRoomExhausted += () => NewsRoomExhausted?.Invoke();
     }
 
@@ -254,6 +260,7 @@ internal sealed class NotchForm : Form
         if (suppress)
         {
             StopSampling();
+            _syncPopup.Dismiss();
             _reservation.Suspend();
             Hide();
             return;
@@ -705,6 +712,7 @@ internal sealed class NotchForm : Form
         {
             UpdateNewsTimers(fetchImmediately: false);
             UpdateStockTimers(fetchImmediately: false);
+            _syncPopup.Dismiss();
             _reservation.Release();
         }
 
@@ -1161,6 +1169,7 @@ internal sealed class NotchForm : Form
             _network.Dispose();
             _connectivityProbe.Dispose();
             _syncStatus.Dispose();
+            _syncPopup.Dispose();
             _syncPoller.Dispose();
             _notchClock.Dispose();
             _petAnimation.Dispose();

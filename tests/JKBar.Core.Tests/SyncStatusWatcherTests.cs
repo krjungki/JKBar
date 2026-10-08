@@ -74,9 +74,12 @@ public sealed class SyncStatusWatcherTests
     [Fact]
     public void AnnouncesSynchronizationAsAChangeInsteadOfAWarning()
     {
-        var watcher = new SyncStatusWatcher();
+        var clock = new ManualClock();
+        var watcher = new SyncStatusWatcher(clock);
         watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.UpToDate)], AllEnabled);
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
 
+        clock.Advance(SyncStatusWatcher.SynchronizingAfter);
         var alert = Assert.Single(
             watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
 
@@ -84,6 +87,36 @@ public sealed class SyncStatusWatcherTests
         Assert.Equal("Syncthing 동기화 중", alert.Title);
         Assert.Equal("동기화가 진행 중입니다", alert.Detail);
         Assert.Equal(AlertSeverity.Change, alert.Severity);
+    }
+
+    [Fact]
+    public void StaysQuietThroughAShortSynchronization()
+    {
+        var clock = new ManualClock();
+        var watcher = new SyncStatusWatcher(clock);
+        watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.UpToDate)], AllEnabled);
+
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.UpToDate)], AllEnabled));
+
+        // A later burst starts its own wait rather than inheriting the earlier one.
+        clock.Advance(TimeSpan.FromSeconds(50));
+        Assert.Empty(watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled));
+    }
+
+    [Fact]
+    public void AnnouncesTroubleDuringAShortSynchronizationAtOnce()
+    {
+        var watcher = new SyncStatusWatcher(new ManualClock());
+        watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.UpToDate)], AllEnabled);
+        watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Synchronizing)], AllEnabled);
+
+        var alert = Assert.Single(
+            watcher.Observe([Snapshot(SyncProviderCatalog.Syncthing, SyncState.Error)], AllEnabled));
+        Assert.Equal("sync.syncthing.attention", alert.Key);
     }
 
     [Fact]
@@ -215,4 +248,13 @@ public sealed class SyncStatusWatcherTests
 
     private static SyncProviderSnapshot Snapshot(string providerId, SyncState state) =>
         new(providerId, providerId[0], state, "테스트");
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 8, 12, 0, 0, TimeSpan.Zero);
+
+        public void Advance(TimeSpan by) => _now += by;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
 }

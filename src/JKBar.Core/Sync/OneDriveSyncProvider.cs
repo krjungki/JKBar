@@ -85,7 +85,7 @@ public sealed class OneDriveSyncProvider : ISyncProvider
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
             LogOnce($"onedrive: sync roots unreadable: {ex.GetType().Name}: {ex.Message}");
-            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "sync roots unreadable");
+            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Unknown, "동기화 폴더 목록을 읽을 수 없습니다");
         }
 
         if (roots.Count == 0)
@@ -94,6 +94,7 @@ public sealed class OneDriveSyncProvider : ISyncProvider
         }
 
         var states = new List<SyncState>(roots.Count);
+        var rootLines = new List<string>(roots.Count);
         string? unreadable = null;
         foreach (var root in roots)
         {
@@ -101,10 +102,13 @@ public sealed class OneDriveSyncProvider : ISyncProvider
             if (status is null)
             {
                 unreadable ??= failure;
+                rootLines.Add($"{RootName(root)}: 상태를 읽을 수 없음");
                 continue;
             }
 
-            states.Add(OneDriveStatusMapper.ToSyncState(status.Value));
+            var rootState = OneDriveStatusMapper.ToSyncState(status.Value);
+            states.Add(rootState);
+            rootLines.Add($"{RootName(root)}: {RootStateName(rootState)}");
         }
 
         var transferring = _gate.Update(_activity.TotalTransferBytes(), _time.GetUtcNow());
@@ -118,9 +122,9 @@ public sealed class OneDriveSyncProvider : ISyncProvider
 
             return transferring
                 ? new SyncProviderSnapshot(ProviderId, Initial, SyncState.Synchronizing,
-                    $"status unavailable, transferring ({ByteRate(_gate.LastRateBytesPerSecond)})")
+                    $"상태를 읽지 못해 전송량으로 판단: 전송 중 ({ByteRate(_gate.LastRateBytesPerSecond)})")
                 : new SyncProviderSnapshot(ProviderId, Initial, SyncState.UpToDate,
-                    "status unavailable, no transfer activity");
+                    "상태를 읽지 못해 전송량으로 판단: 전송 없음");
         }
 
         if (unreadable is not null)
@@ -134,19 +138,25 @@ public sealed class OneDriveSyncProvider : ISyncProvider
         if (aggregate is SyncState.UpToDate && transferring)
         {
             var rate = ByteRate(_gate.LastRateBytesPerSecond);
-            return new SyncProviderSnapshot(ProviderId, Initial, SyncState.Synchronizing, $"transferring ({rate})");
+            return new SyncProviderSnapshot(
+                ProviderId, Initial, SyncState.Synchronizing, string.Join('\n', [$"전송 중 ({rate})", .. rootLines]));
         }
 
-        var detail = aggregate switch
-        {
-            SyncState.UpToDate => $"{roots.Count} sync root(s) settled",
-            SyncState.Synchronizing => "a sync root reported activity",
-            SyncState.Error => "a sync root reported an error",
-            _ => "state unavailable"
-        };
-
-        return new SyncProviderSnapshot(ProviderId, Initial, aggregate, detail);
+        return new SyncProviderSnapshot(ProviderId, Initial, aggregate, string.Join('\n', rootLines));
     }
+
+    private static string RootName(string root) =>
+        Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) is { Length: > 0 } name
+            ? name
+            : root;
+
+    private static string RootStateName(SyncState state) => state switch
+    {
+        SyncState.UpToDate => "최신",
+        SyncState.Synchronizing => "동기화 중",
+        SyncState.Error => "오류 또는 연결 끊김",
+        _ => "상태를 알 수 없음"
+    };
 
     private static string ByteRate(double bytesPerSecond) =>
         bytesPerSecond >= 1024 * 1024
